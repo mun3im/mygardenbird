@@ -57,3 +57,7 @@ The values in **XC Sources (Train/Val/Test)** add up to the **Total XC Files** c
 | **Average**    | **86.45** | **79.67** | **81.67** |
 
 Validation by pretrained CNNs only proves the dataset can be separable.
+
+### Conclusion
+
+This dataset and accompanying experiments prioritize **methodological rigor and reproducibility** over scale. We demonstrate that frequency representation choice can impact accuracy by 11 percentage points—often more than architecture choice (6 points)—using a carefully controlled experimental design with complete code release and transparent reporting of all results
