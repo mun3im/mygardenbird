@@ -3,7 +3,9 @@
 
 ### SEA-Bird Dataset Statistics
 
-| No. | Common Name                | Scientific Name                | Train | Val | Test | 16 kHz Clips | 44.1 kHz Clips | 16 kHz XC (Train/Val/Test) | Total Source XC Files |
+This dataset is intended for edge deployment so stats and validation are based on 16 kHz subset. The 44.1 kHz clips subset are provided as 'side product' only.
+
+| No. | Common Name                | Scientific Name                | Train | Val | Test | 16 kHz Clips | 44.1 kHz Clips | XC Sources (Train/Val/Test) | Total  XC Files |
 |-----|----------------------------|--------------------------------|-------|-----|------|-------|----------------|---------------------|----------|
 | 1   | Asian Koel                 | *Eudynamys scolopaceus*        | 450   | 60  | 90   | 600   | 576            | 86 / 13 / 32        | 131      |
 | 2   | Collared Kingfisher        | *Todiramphus chloris*          | 450   | 60  | 90   | 600   | 571            | 73 / 18 / 26        | 117      |
@@ -17,7 +19,7 @@
 | 10  | Zebra Dove                 | *Geopelia striata*             | 450   | 60  | 90   | 600   | 581            | 69 / 10 / 27        | 106      |
 |     | **Total**                  |                                | **4500** | **600** | **900** | **6000** | **5,821**     | **722 / 117 / 235** | **1,074** |
 
-✅ The values in **Sources (T/V/Test)** add up to the **XC Files** column for every species and the overall total:
+The values in **XC Sources (Train/Val/Test)** add up to the **Total XC Files** column for every species and the overall total:
 
 - Example: Asian Koel → 86 + 13 + 32 = **131** ✓
 - Overall: 722 + 117 + 235 = **1,074** ✓
