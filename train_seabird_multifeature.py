@@ -44,7 +44,7 @@ TARGET_LENGTH_SAMPLES = None
 HOP_LENGTH = None
 N_FFT = 2048
 N_MELS = 128
-N_MFCC = 80  # Increased from 40 for better resolution when resizing to 224x224
+N_MFCC = 80
 TARGET_SPEC_WIDTH = 224
 TARGET_SPEC_HEIGHT = 224
 PREPROCESS_FN = None   # Will be set in main() based on chosen model
@@ -61,7 +61,6 @@ def audio_to_melspec(audio, label, augment=False):
 
     log_mel_spec = librosa.power_to_db(mel_spec, top_db=None)
 
-    # SpecAugment
     if augment:
         if np.random.rand() < 0.5:
             time_mask_width = np.random.randint(0, log_mel_spec.shape[1] // 10)
@@ -73,13 +72,9 @@ def audio_to_melspec(audio, label, augment=False):
             start = np.random.randint(0, max(1, log_mel_spec.shape[0] - freq_mask_width))
             log_mel_spec[start:start + freq_mask_width, :] = np.min(log_mel_spec)
 
-    # Enforce exact shape (safety check)
     log_mel_spec = log_mel_spec[:224, :224]
-
-    # To RGB
     log_mel_spec = np.stack([log_mel_spec] * 3, axis=-1)
 
-    # === 2–98 percentile scaling + ImageNet preprocessing ===
     p2, p98 = np.percentile(log_mel_spec, (2, 98))
     if p98 > p2 + 1e-8:
         log_mel_spec = np.clip(log_mel_spec, p2, p98)
@@ -88,22 +83,16 @@ def audio_to_melspec(audio, label, augment=False):
         log_mel_spec = np.full_like(log_mel_spec, 128.0, dtype=np.float32)
 
     log_mel_spec = PREPROCESS_FN(log_mel_spec)
-    # =======================================================
-
     return log_mel_spec.astype(np.float32), label
 
 def audio_to_stft(audio, label, augment=False):
     """Convert audio to STFT magnitude spectrogram."""
     audio = np.squeeze(audio).astype(np.float32)
 
-    # Compute STFT
     stft = librosa.stft(audio, n_fft=N_FFT, hop_length=HOP_LENGTH)
     stft_mag = np.abs(stft)
-
-    # Convert to dB
     stft_db = librosa.amplitude_to_db(stft_mag, top_db=None)
 
-    # SpecAugment
     if augment:
         if np.random.rand() < 0.5:
             time_mask_width = np.random.randint(0, stft_db.shape[1] // 10)
@@ -115,12 +104,10 @@ def audio_to_stft(audio, label, augment=False):
             start = np.random.randint(0, max(1, stft_db.shape[0] - freq_mask_width))
             stft_db[start:start + freq_mask_width, :] = np.min(stft_db)
 
-    # Resize to 224x224 and create RGB
     stft_db = np.expand_dims(stft_db, axis=-1)
     stft_db = np.repeat(stft_db, 3, axis=-1)
     stft_db = tf.image.resize(stft_db, [TARGET_SPEC_HEIGHT, TARGET_SPEC_WIDTH]).numpy()
 
-    # === 2–98 percentile scaling + ImageNet preprocessing ===
     p2, p98 = np.percentile(stft_db, (2, 98))
     if p98 > p2 + 1e-8:
         stft_db = np.clip(stft_db, p2, p98)
@@ -129,25 +116,20 @@ def audio_to_stft(audio, label, augment=False):
         stft_db = np.full_like(stft_db, 128.0, dtype=np.float32)
 
     stft_db = PREPROCESS_FN(stft_db)
-    # =======================================================
-
     return stft_db.astype(np.float32), label
 
 def audio_to_mfcc_deltas(audio, label, augment=False):
     """Convert audio to MFCC (repeated 3×) as RGB."""
     audio = np.squeeze(audio).astype(np.float32)
 
-    # Compute MFCCs
     mfccs = librosa.feature.mfcc(
         y=audio, sr=SAMPLE_RATE, n_mfcc=N_MFCC,
         n_fft=N_FFT, hop_length=HOP_LENGTH
     )
 
-    # Compute deltas (kept for possible future use, but currently not used)
     mfcc_delta = librosa.feature.delta(mfccs)
     mfcc_delta2 = librosa.feature.delta(mfccs, order=2)
 
-    # SpecAugment on all channels
     if augment:
         for feat in [mfccs, mfcc_delta, mfcc_delta2]:
             if np.random.rand() < 0.5:
@@ -155,14 +137,10 @@ def audio_to_mfcc_deltas(audio, label, augment=False):
                 start = np.random.randint(0, max(1, feat.shape[1] - time_mask_width))
                 feat[:, start:start + time_mask_width] = np.min(feat)
 
-    # Use only MFCCs repeated 3 times (as in original code)
-    mfccs_normalized = (mfccs - np.mean(mfccs)) / (np.std(mfccs) + 1e-9)   # temporary internal norm
+    mfccs_normalized = (mfccs - np.mean(mfccs)) / (np.std(mfccs) + 1e-9)
     mfcc_rgb = np.stack([mfccs_normalized] * 3, axis=-1)
-
-    # Resize to 224x224
     mfcc_rgb = tf.image.resize(mfcc_rgb, [TARGET_SPEC_HEIGHT, TARGET_SPEC_WIDTH], method='bicubic').numpy()
 
-    # === 2–98 percentile scaling + ImageNet preprocessing ===
     p2, p98 = np.percentile(mfcc_rgb, (2, 98))
     if p98 > p2 + 1e-8:
         mfcc_rgb = np.clip(mfcc_rgb, p2, p98)
@@ -171,14 +149,11 @@ def audio_to_mfcc_deltas(audio, label, augment=False):
         mfcc_rgb = np.full_like(mfcc_rgb, 128.0, dtype=np.float32)
 
     mfcc_rgb = PREPROCESS_FN(mfcc_rgb)
-    # =======================================================
-
     return mfcc_rgb.astype(np.float32), label
-
 
 def build_dataset(
     root_dir,
-    classes=None,                 # <<< NEW
+    classes=None,
     feature='mel',
     augment=False,
     shuffle=False,
@@ -186,11 +161,6 @@ def build_dataset(
     num_parallel=4,
     seed=42
 ):
-    """Build dataset with fixed global class mapping."""
-
-    # -----------------------------
-    # Select feature extraction function
-    # -----------------------------
     if feature == 'mel':
         feature_func = audio_to_melspec
     elif feature == 'stft':
@@ -200,9 +170,6 @@ def build_dataset(
     else:
         raise ValueError(f"Unknown feature type: {feature}")
 
-    # -----------------------------
-    # Build / reuse class list
-    # -----------------------------
     if classes is None:
         classes = sorted([
             d for d in os.listdir(root_dir)
@@ -211,9 +178,6 @@ def build_dataset(
 
     class_to_idx = {cls: i for i, cls in enumerate(classes)}
 
-    # -----------------------------
-    # Collect paths and labels
-    # -----------------------------
     paths = []
     labels = []
 
@@ -230,9 +194,6 @@ def build_dataset(
     if not paths:
         raise ValueError(f"No audio files found in {root_dir}")
 
-    # -----------------------------
-    # Audio loader
-    # -----------------------------
     def load_audio_pyfunc(path, label):
         audio, _ = librosa.load(path.numpy().decode('utf-8'),
                                  sr=SAMPLE_RATE,
@@ -245,9 +206,6 @@ def build_dataset(
 
         return audio.astype(np.float32), label
 
-    # -----------------------------
-    # Processing pipeline
-    # -----------------------------
     def process_audio(path, label):
         audio, label = tf.py_function(
             load_audio_pyfunc,
@@ -269,9 +227,6 @@ def build_dataset(
 
         return spec, label
 
-    # -----------------------------
-    # Build tf.data pipeline
-    # -----------------------------
     path_ds = tf.data.Dataset.from_tensor_slices(paths)
     label_ds = tf.data.Dataset.from_tensor_slices(labels)
     ds = tf.data.Dataset.zip((path_ds, label_ds))
@@ -285,10 +240,7 @@ def build_dataset(
 
     return ds, classes
 
-
 def create_model(model_name='mobilenetv3s', num_classes=10, use_pretrained=True):
-    """Create model with specified architecture."""
-
     if use_pretrained:
         weights = 'imagenet'
     else:
@@ -325,7 +277,6 @@ def create_model(model_name='mobilenetv3s', num_classes=10, use_pretrained=True)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
-    # Add regularization to classifier head to prevent collapse
     model = keras.Sequential([
         base,
         layers.Dropout(0.3),
@@ -334,7 +285,7 @@ def create_model(model_name='mobilenetv3s', num_classes=10, use_pretrained=True)
         layers.Dense(num_classes, activation='softmax')
     ])
 
-    return model, base  # Return base for fine-tuning control
+    return model, base
 
 def plot_history(history, outdir):
     plt.figure(figsize=(10,4))
@@ -384,12 +335,9 @@ def main():
     tf.random.set_seed(args.seed)
     random.seed(args.seed)
 
-    # -----------------------------
-    # Set model-specific preprocess function
-    # -----------------------------
     global PREPROCESS_FN
     if args.model == 'mobilenetv3s':
-        PREPROCESS_FN = mobilenet_v3.preprocess_input
+        PREPROCESS_FN = mobilenet_v3.preprocess_input  # Maps [0,255] -> [-1,1]
     elif args.model == 'resnet50':
         PREPROCESS_FN = resnet50.preprocess_input
     elif args.model == 'vgg16':
@@ -397,12 +345,10 @@ def main():
     elif args.model == 'efficientnetb0':
         PREPROCESS_FN = efficientnet.preprocess_input
     else:
-        PREPROCESS_FN = lambda x: x  # fallback
-
+        PREPROCESS_FN = lambda x: x
 
     if args.force_cpu:
         print("⚠ Forcing CPU mode (CUDA disabled)")
-        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         tf.config.set_visible_devices([], 'GPU')
 
@@ -411,8 +357,7 @@ def main():
     TARGET_LENGTH_SAMPLES = int(SAMPLE_RATE * 3.0)
     N_MELS = args.n_mels
     N_FFT = args.n_fft
-
-    HOP_LENGTH = TARGET_LENGTH_SAMPLES // 224  # force 224 frames
+    HOP_LENGTH = TARGET_LENGTH_SAMPLES // 224
 
     print("="*80)
     print(f"SEABIRD CNN TRAINING - {args.feature.upper()} Features")
@@ -426,7 +371,6 @@ def main():
     print(f"Epochs: {args.num_epochs}")
     print()
 
-    # Build datasets
     print("Building datasets...")
     train_ds, classes = build_dataset(
         args.train_dir, feature=args.feature,
@@ -446,27 +390,20 @@ def main():
     print(f"✓ Classes: {len(classes)}")
     print(classes)
 
-    # Create model
     print("Creating model...")
     model, base = create_model(args.model, len(classes), args.use_pretrained)
 
-    # Model-specific learning rate (VGG16 needs lower LR to prevent collapse)
     if args.model == 'vgg16':
-        learning_rate = args.learning_rate * 0.1  # 0.0001 instead of 0.001
+        learning_rate = args.learning_rate * 0.1
         print(f"  Using reduced learning rate for VGG16: {learning_rate}")
     else:
         learning_rate = args.learning_rate
 
-    # Optimizer with gradient clipping to prevent exploding gradients
     if platform.system().lower() == 'linux':
         optimizer = optimizers.AdamW(learning_rate=learning_rate, clipnorm=1.0)
     else:
         optimizer = optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0)
 
-    # Check TensorFlow version for label_smoothing support
-    tf_version = tf.__version__.split('.')
-    tf_major = int(tf_version[0])
-    tf_minor = int(tf_version[1])
     loss_fn = losses.SparseCategoricalCrossentropy()
 
     model.compile(
@@ -479,7 +416,6 @@ def main():
     print(f"  Parameters: {model.count_params():,}")
     print()
 
-    # Callbacks for training stability
     callbacks = [
         keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, verbose=1
@@ -489,15 +425,10 @@ def main():
         )
     ]
 
-    # Train
     print("Training...")
     start_time = time.time()
 
-    # -------------------------------
-    # Fine-tuning warmup (VGG16 + MobileNet)
-    # -------------------------------
     if args.use_pretrained and args.model in ['vgg16', 'mobilenetv3s']:
-
         print(f"{args.model} warmup: training classifier head with frozen base...")
         base.trainable = False
 
@@ -516,26 +447,29 @@ def main():
 
         print(f"{args.model} fine-tuning: unfreezing top layers with lower learning rate...")
 
-        # ---- Unfreeze strategy ----
         if args.model == 'mobilenetv3s':
-            # only unfreeze top ~25% of layers
-            n = int(len(base.layers) * 0.75)
+            # >>> FIX 2: Unfreeze top 50% of layers <<<
+            n = int(len(base.layers) * 0.5)
             for layer in base.layers[:n]:
                 layer.trainable = False
             for layer in base.layers[n:]:
                 layer.trainable = True
+
+            # >>> FIX 3: Use lower fine-tuning LR <<<
+            fine_tune_learning_rate = 1e-5
         else:
             # VGG: unfreeze entire base
             base.trainable = True
+            fine_tune_learning_rate = learning_rate * 0.1
 
         if platform.system().lower() == 'linux':
             fine_tune_optimizer = tf.keras.optimizers.AdamW(
-                learning_rate=learning_rate * 0.1,
+                learning_rate=fine_tune_learning_rate,
                 clipnorm=1.0
             )
         else:
             fine_tune_optimizer = tf.keras.optimizers.Adam(
-                learning_rate=learning_rate * 0.1,
+                learning_rate=fine_tune_learning_rate,
                 clipnorm=1.0
             )
 
@@ -555,7 +489,6 @@ def main():
 
     train_time = (time.time() - start_time) / 60
 
-    # Evaluate
     print("\nEvaluating on test set...")
     test_loss, test_acc = model.evaluate(test_ds)
 
@@ -567,19 +500,16 @@ def main():
         y_pred.extend(np.argmax(preds, axis=1))
         y_true.extend(y.numpy())
 
-    # Save results
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     pretrained_str = "pretrained" if args.use_pretrained else "scratch"
     run_name = f"{args.model}_{args.feature}_{pretrained_str}_seed{args.seed}_{platform.system().lower()}"
     output_path = Path(args.output_dir) / run_name
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Classification report
     report = classification_report(y_true, y_pred, target_names=classes, digits=4)
     with open(output_path / "classification_report.txt", "w") as f:
         f.write(report)
 
-    # Confusion matrix
     cm = confusion_matrix(y_true, y_pred)
 
     plt.figure(figsize=(8, 6))
