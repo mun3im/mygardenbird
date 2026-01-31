@@ -1,73 +1,231 @@
-# SEA-Bird
-## Curation of Southeast Asia bird sound dataset
+# SEAbird Audio Dataset Pipeline
 
-Our dataset contains **6,000 total samples** (600 per class × 10 species), which is modest compared to large-scale datasets like AudioSet (2M samples) or ESC-50 (2,000 samples but 50 classes). However, we argue this is **sufficient for the methodological contributions** of this work.
+Complete end-to-end pipeline for creating bird audio classification datasets from Xeno-Canto recordings.
 
-**Primary Contribution:** Demonstrating the critical importance of frequency representation choice through controlled experimentation.
+## Overview
 
-**What we ARE claiming:**
-- "Frequency representation choice impacts accuracy by 2-11%, often more than architecture choice"
-- "Higher sampling rates harm accuracy with linear frequency bins"
-- "These findings are reproducible, well-controlled, and generalizable"
+This pipeline automates the entire process from downloading raw audio to training deep learning models:
 
+1. **Download** recordings from Xeno-Canto
+2. **Annotate** bird vocalizations with interactive GUI
+3. **Extract** 3-second segments
+4. **Quality control** and filtering
+5. **Optimize** dataset splits (prevents data leakage)
+6. **Train** CNN models for classification
 
-### SEA-Bird Dataset Statistics
+## Quick Start
 
-This dataset is intended for edge deployment so stats and validation are based on 16 kHz subset. The 44.1 kHz clips subset are provided as 'side product' only.
-To prevent leakage, all clips from the same original recording were assigned to the same split. This perfect optimization was performed using mixed-integer programming.
+```bash
+# 1. Create API key file
+echo "YOUR_XENO_CANTO_API_KEY" > xc_key.txt
 
-| No. | Common Name                | Scientific Name                | Train | Val | Test | 16 kHz Clips | 44.1 kHz Clips | XC Sources (Train/Val/Test) | Total  XC Files |
-|-----|----------------------------|--------------------------------|-------|-----|------|-------|----------------|---------------------|----------|
-| 1   | Asian Koel                 | *Eudynamys scolopaceus*        | 450   | 60  | 90   | 600   | 576            | 86 / 13 / 32        | 131      |
-| 2   | Collared Kingfisher        | *Todiramphus chloris*          | 450   | 60  | 90   | 600   | 571            | 73 / 18 / 26        | 117      |
-| 3   | Common Iora                | *Aegithina tiphia*             | 450   | 60  | 90   | 600   | 598            | 75 / 9 / 21         | 105      |
-| 4   | Common Myna                | *Acridotheres tristis*         | 450   | 60  | 90   | 600   | 592            | 81 / 10 / 32        | 123      |
-| 5   | Common Tailorbird          | *Orthotomus sutorius*          | 450   | 60  | 90   | 600   | 577            | 65 / 10 / 21        | 96       |
-| 6   | Large-tailed Nightjar      | *Caprimulgus macrurus*         | 450   | 60  | 90   | 600   | 581            | 56 / 11 / 16        | 83       |
-| 7   | Olive-backed Sunbird       | *Cinnyris jugularis*           | 450   | 60  | 90   | 600   | 576            | 68 / 10 / 17        | 95       |
-| 8   | Spotted Dove               | *Spilopelia chinensis*         | 450   | 60  | 90   | 600   | 599            | 68 / 9 / 18         | 95       |
-| 9   | White-throated Kingfisher  | *Halcyon smyrnensis*           | 450   | 60  | 90   | 600   | 570            | 81 / 17 / 25        | 123      |
-| 10  | Zebra Dove                 | *Geopelia striata*             | 450   | 60  | 90   | 600   | 581            | 69 / 10 / 27        | 106      |
-|     | **Total**                  |                                | **4500** | **600** | **900** | **6000** | **5,821**     | **722 / 117 / 235** | **1,074** |
+# 2. Download recordings
+python Stage2_xc_dload_all_from_species_list.py --output-dir /path/to/output
 
-The values in **XC Sources (Train/Val/Test)** add up to the **Total XC Files** column for every species and the overall total:
+# 3. Annotate segments (interactive)
+python Stage5_find_segments_interactive.py --sound-dir /path/to/output
 
-- Example: Asian Koel → 86 + 13 + 32 = **131** ✓
-- Overall: 722 + 117 + 235 = **1,074** ✓
+# 4. Extract annotated segments
+python Stage6_extract_annotated_segments.py /path/to/output --output-dir ./segments
 
-### Optimization Timing Runs
+# 5. Quality control
+python Stage7_quality_control_selection.py ./segments --qc-only
 
-| Algorithm               | Time                 | Speed vs. SA | Optimal?   | Deterministic? |
-| ----------------------- | -------------------- | ------------ | ---------- | -------------- |
-| **MIP (CBC solver)**    | **1.70 s**           | **564×**     | ✓ Proven   | ✓ Yes          |
-| **Genetic Algorithm**   | **13.6 s**           | **70×**      | ✓ Achieved | ✗ No           |
-| **Simulated Annealing** | **952 s (15.9 min)** | **1×**       | ✓ Achieved | ✗ No           |
+# 6. Optimized splitting (prevents data leakage)
+python Stage8a_splitter_mip.py ./segments --output-dir ./dataset
 
+# 7. Train model
+python Stage9_train_seabird_multifeature.py \
+    --train_dir ./dataset/train \
+    --val_dir ./dataset/val \
+    --test_dir ./dataset/test \
+    --use_pretrained
+```
 
-### Validation by Pretrained CNNs
+## Pipeline Stages
 
-To objectively demonstrate the quality and separability of the SEA-Bird dataset, we evaluated four standard ImageNet-pretrained CNN architectures using three common spectrogram representations (Mel, STFT, MFCC). These models were chosen because they contain no audio-specific inductive biases, providing a clean, architecture-agnostic assessment of the dataset.
+| Stage | Script | Description |
+|-------|--------|-------------|
+| 1 | `Stage1_xc_fetch_metadata.py` | Fetch recording metadata |
+| 2 | `Stage2_xc_dload_all_from_species_list.py` | Download recordings (Xeno-Canto API v3) |
+| 3 | `Stage3_xc_dload_delta_by_id.py` | Download specific recordings by ID |
+| 4 | `Stage4_eda_downloads.py` | Exploratory data analysis |
+| 5 | `Stage5_find_segments_interactive.py` | Interactive annotation GUI |
+| 6 | `Stage6_extract_annotated_segments.py` | Extract WAV segments |
+| 7 | `Stage7_quality_control_selection.py` | Quality control + basic splits |
+| 8a | `Stage8a_splitter_mip.py` | Optimal splits (MIP - recommended) |
+| 8b | `Stage8b_splitter_genetic_algorithm.py` | Optimal splits (GA) |
+| 8c | `Stage8c_splitter_simulated_annealing.py` | Optimal splits (SA) |
+| 9 | `Stage9_train_seabird_multifeature.py` | Model training & validation |
 
-**Test Accuracy (%) by Model and Feature Type**
+## Key Features
 
-| Model          | Mel    | STFT   | MFCC   |
-|:---------------|:------:|:------:|:------:|
-| EfficientNetB0 | 88.89  | 91.89  | 87.11  |
-| MobileNetV3S   | 82.11  | 60.67 | 66.78  |
-| ResNet50       | 89.78  | 88.00  | 86.89  |
-| VGG16          | 85.00  | 88.44  | 85.89  |
-| **Average**    | **86.45** | **79.67** | **81.67** |
+### Stage 2: Smart Downloading
+- **API v3 compatible** with auto-key loading
+- **FLAC format** (lossless) with automatic MP3→FLAC conversion
+- **Organized by species and quality** grades (A/B/C/D/E)
 
-Why use pretrained vision CNNs for validation?
+### Stage 5: Interactive Annotation
+- **Visual spectrogram + waveform** display
+- **Automatic blob detection** with adjustable parameters
+- **Drag-and-drop** segment repositioning
+- **SNR calculation** (signal-to-noise ratio)
+- **Audio playback** with progress indicator
 
-- They serve as strong, general-purpose baselines without audio-specific assumptions.
-- Differences in performance across feature types (Mel, STFT, MFCC) can be confidently attributed to the representation rather than model design.
-- These models are standard in the audio classification literature, enabling direct comparison with other studies.
-- Lightweight variants (EfficientNetB0, MobileNetV3S) reflect realistic edge-deployment scenarios.
-- They provide a conservative, reproducible measure of dataset separability.
+### Stage 8: Optimized Splitting
+**Why Stage 8 matters:**
+- **Prevents data leakage**: Same recording never appears in multiple splits
+- **Source-based separation**: Groups files by XC recording ID
+- **Exact ratios**: Guarantees 75%/10%/15% (train/val/test)
+- **Class balance**: Maintains distribution across all species
 
-The results confirm high class separability (average 86.45% top accuracy with Mel spectrograms), validating the quality of the SEA-Bird dataset.
+**Three optimization methods:**
 
-### Conclusion
+| Method | Speed | Quality | Deterministic | Use Case |
+|--------|-------|---------|---------------|----------|
+| **MIP** | Fast | Optimal | ✅ Yes | Production (recommended) |
+| **GA** | Moderate | Near-optimal | ❌ No | Complex constraints |
+| **SA** | Moderate | Near-optimal | ❌ No | Moderate datasets |
 
-This dataset and accompanying experiments prioritize **methodological rigor and reproducibility** over scale. We demonstrate that frequency representation choice can impact accuracy by 11 percentage points—often more than architecture choice (6 points)—using a carefully controlled experimental design with complete code release and transparent reporting of all results
+### Stage 9: Multi-feature Training
+- **4 CNN architectures**: MobileNetV3, ResNet50, VGG16, EfficientNetB0
+- **3 feature types**: Mel spectrogram, STFT, MFCC
+- **Data augmentation**: SpecAugment for robustness
+- **Pretrained weights**: ImageNet transfer learning
+- **Detailed logging**: System config, hyperparameters, runtime stats
+
+## Installation
+
+### Requirements
+```bash
+# Core dependencies
+pip install numpy scipy librosa soundfile requests tqdm
+
+# Stage 5 (annotation GUI)
+pip install matplotlib sounddevice
+
+# Stage 8 (MIP optimization)
+pip install pulp
+
+# Stage 9 (training)
+pip install tensorflow==2.15.* scikit-learn seaborn
+
+# System requirement
+# ffmpeg for audio conversion (install via package manager)
+```
+
+### Get API Key
+1. Register at https://xeno-canto.org
+2. Get API key from https://xeno-canto.org/account/profile
+3. Save to `xc_key.txt`
+
+## Configuration
+
+Edit `species.py` and `target_species.csv` to customize target species.
+
+## Output Structure
+
+```
+output_dir/
+├── {Species name}/
+│   ├── A/          # Quality A recordings
+│   │   ├── xc123456.flac
+│   │   └── xc123456.txt    # Annotations
+│   ├── B/          # Quality B recordings
+│   └── C/          # Quality C recordings
+│
+extracted_segments/
+├── {Species name}/
+│   ├── xc123456_0.wav      # First 3s segment
+│   ├── xc123456_1.wav      # Second 3s segment
+│   └── ...
+│
+dataset/
+├── train/{Species name}/   # 75% of data
+├── val/{Species name}/     # 10% of data
+├── test/{Species name}/    # 15% of data
+└── split_info.json         # Split metadata
+```
+
+## Documentation
+
+See [`PIPELINE_OVERVIEW.md`](PIPELINE_OVERVIEW.md) for detailed documentation including:
+- Complete API reference for all stages
+- Advanced configuration options
+- Troubleshooting guide
+- Pipeline comparison (basic vs optimized)
+
+## Examples
+
+### Download Specific Species
+```bash
+python Stage2_xc_dload_all_from_species_list.py \
+    --species "Common myna" "Zebra dove" \
+    --quality A B \
+    --output-dir /Volumes/Evo/xc-mygarden-flac
+```
+
+### Custom Split Ratios
+```bash
+python Stage8a_splitter_mip.py ./segments \
+    --output-dir ./dataset \
+    --train-ratio 0.8 \
+    --val-ratio 0.1 \
+    --test-ratio 0.1
+```
+
+### Train with Custom Parameters
+```bash
+python Stage9_train_seabird_multifeature.py \
+    --model efficientnetb0 \
+    --feature mel \
+    --batch_size 64 \
+    --num_epochs 100 \
+    --learning_rate 0.0005 \
+    --use_pretrained
+```
+
+## Citation
+
+If you use this pipeline in your research, please cite:
+
+```bibtex
+@software{seabird_pipeline_2026,
+  title = {SEAbird Audio Dataset Pipeline},
+  author = {Your Name},
+  year = {2026},
+  url = {https://github.com/yourusername/seabird-pipeline}
+}
+```
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+## Acknowledgments
+
+- **Xeno-Canto** for providing the audio recordings and API
+- **TensorFlow** and **Keras** teams for the deep learning framework
+- **librosa** developers for audio processing tools
+
+## Support
+
+For questions or issues:
+- Open an issue on GitHub
+- See `PIPELINE_OVERVIEW.md` for detailed documentation
+- Check existing issues for common problems
+
+---
+
+**Status**: Production-ready ✅
+
+**Last Updated**: 2026-01-30
+
+**Pipeline Version**: 1.0.0
