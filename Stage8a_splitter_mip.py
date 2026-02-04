@@ -27,7 +27,6 @@ Date: December 2024
 import json
 import os
 import argparse
-import shutil
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple
@@ -262,7 +261,10 @@ def optimize_split_mip(structure: Dict[str, Dict[str, List[str]]],
                     break
 
     # Calculate statistics
-    stats = calculate_statistics(structure, assignment)
+    stats = calculate_statistics(structure, assignment,
+                                train_ratio=train_ratio,
+                                val_ratio=val_ratio,
+                                test_ratio=test_ratio)
 
     return assignment, stats, value(prob.objective) if prob.objective else 0
 
@@ -272,7 +274,10 @@ def optimize_split_mip(structure: Dict[str, Dict[str, List[str]]],
 # ============================================================================
 
 def calculate_statistics(structure: Dict[str, Dict[str, List[str]]],
-                        assignment: Dict[str, Dict[str, str]]) -> Dict:
+                        assignment: Dict[str, Dict[str, str]],
+                        train_ratio: float = TARGET_TRAIN_RATIO,
+                        val_ratio: float = TARGET_VAL_RATIO,
+                        test_ratio: float = TARGET_TEST_RATIO) -> Dict:
     """Calculate detailed statistics for the split assignment."""
     stats = {}
 
@@ -335,9 +340,9 @@ def calculate_statistics(structure: Dict[str, Dict[str, List[str]]],
     }
 
     stats['_config'] = {
-        'train_ratio': TARGET_TRAIN_RATIO,
-        'val_ratio': TARGET_VAL_RATIO,
-        'test_ratio': TARGET_TEST_RATIO,
+        'train_ratio': train_ratio,
+        'val_ratio': val_ratio,
+        'test_ratio': test_ratio,
         'optimization': 'mixed_integer_programming'
     }
 
@@ -377,9 +382,12 @@ def format_statistics_text(stats: Dict) -> str:
 
     lines.append("")
     lines.append("Actual Ratios:")
-    lines.append(f"  Train: {actual_train_ratio:.1%} (target: {TARGET_TRAIN_RATIO:.1%})")
-    lines.append(f"  Val:   {actual_val_ratio:.1%} (target: {TARGET_VAL_RATIO:.1%})")
-    lines.append(f"  Test:  {actual_test_ratio:.1%} (target: {TARGET_TEST_RATIO:.1%})")
+    target_train = stats['_config']['train_ratio']
+    target_val = stats['_config']['val_ratio']
+    target_test = stats['_config']['test_ratio']
+    lines.append(f"  Train: {actual_train_ratio:.1%} (target: {target_train:.1%})")
+    lines.append(f"  Val:   {actual_val_ratio:.1%} (target: {target_val:.1%})")
+    lines.append(f"  Test:  {actual_test_ratio:.1%} (target: {target_test:.1%})")
     lines.append("")
     lines.append("Configuration:")
     lines.append(f"  Optimization: {stats['_config']['optimization']}")
@@ -425,9 +433,12 @@ def print_statistics(stats: Dict, verbose: bool = True):
 
     print()
     print("Actual Ratios:")
-    print(f"  Train: {actual_train_ratio:.1%} (target: {TARGET_TRAIN_RATIO:.1%})")
-    print(f"  Val:   {actual_val_ratio:.1%} (target: {TARGET_VAL_RATIO:.1%})")
-    print(f"  Test:  {actual_test_ratio:.1%} (target: {TARGET_TEST_RATIO:.1%})")
+    target_train = stats['_config']['train_ratio']
+    target_val = stats['_config']['val_ratio']
+    target_test = stats['_config']['test_ratio']
+    print(f"  Train: {actual_train_ratio:.1%} (target: {target_train:.1%})")
+    print(f"  Val:   {actual_val_ratio:.1%} (target: {target_val:.1%})")
+    print(f"  Test:  {actual_test_ratio:.1%} (target: {target_test:.1%})")
     print()
 
 
@@ -435,50 +446,42 @@ def print_statistics(stats: Dict, verbose: bool = True):
 # FILE OPERATIONS
 # ============================================================================
 
-def create_split_directories(dataset_path: str,
-                            structure: Dict[str, Dict[str, List[str]]],
-                            assignment: Dict[str, Dict[str, str]],
-                            output_dir: str = 'splits_mip',
-                            verbose: bool = True):
-    """Create train/val/test directories and copy files."""
-    output_path = Path(dataset_path).parent / output_dir
-
+def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
+                      assignment: Dict[str, Dict[str, str]],
+                      output_path: Path,
+                      train_ratio: float = 0.75,
+                      val_ratio: float = 0.10,
+                      test_ratio: float = 0.15,
+                      objective: float = 0,
+                      seed: int = 42,
+                      verbose: bool = True):
+    """Write a CSV with columns: filename,split."""
     if verbose:
-        print(f"📁 Creating split directories in: {output_path}")
+        print(f"📄 Writing splits CSV: {output_path}")
 
-    # Create directories
-    for split in ['train', 'val', 'test']:
-        split_path = output_path / split
-        split_path.mkdir(parents=True, exist_ok=True)
+    train_pct = int(round(train_ratio * 100))
+    val_pct = int(round(val_ratio * 100))
+    test_pct = int(round(test_ratio * 100))
 
-        for class_name in structure.keys():
-            (split_path / class_name).mkdir(exist_ok=True)
-
-    # Copy files
-    if verbose:
-        print("   Copying files...")
-
-    total_files = sum(
-        len(files)
-        for class_sources in structure.values()
-        for files in class_sources.values()
-    )
-
-    copied = 0
-    for class_name, sources in structure.items():
-        for source, files in sources.items():
+    rows = []
+    for class_name in sorted(structure.keys()):
+        sources = structure[class_name]
+        for source in sorted(sources.keys()):
             split = assignment[class_name][source]
-            src_dir = Path(dataset_path) / class_name
-            dst_dir = output_path / split / class_name
+            for filename in sorted(sources[source]):
+                rows.append((filename, split))
 
-            for file in files:
-                src = src_dir / file
-                dst = dst_dir / file
-                shutil.copy2(src, dst)
-                copied += 1
+    with open(output_path, 'w') as f:
+        f.write(f"# split_ratio={train_pct}:{val_pct}:{test_pct} seed={seed} objective={objective:.0f} solver=mip_cbc\n")
+        f.write("filename,split\n")
+        for filename, split in rows:
+            f.write(f"{filename},{split}\n")
 
     if verbose:
-        print(f"   ✓ Copied {copied} files")
+        counts = {'train': 0, 'val': 0, 'test': 0}
+        for _, split in rows:
+            counts[split] += 1
+        print(f"   ✓ Wrote {len(rows)} rows (train={counts['train']}, val={counts['val']}, test={counts['test']})")
         print()
 
     return output_path
@@ -528,8 +531,10 @@ def plot_split_distribution(stats: Dict, output_path: Path):
             bottom=[t+v for t, v in zip(ratios_train, ratios_val)],
             label='Test', color='#e74c3c')
 
-    ax2.axhline(y=TARGET_TRAIN_RATIO, color='#3498db', linestyle='--', alpha=0.5, label=f'Target Train ({TARGET_TRAIN_RATIO:.0%})')
-    ax2.axhline(y=TARGET_TRAIN_RATIO + TARGET_VAL_RATIO, color='#2ecc71', linestyle='--', alpha=0.5, label=f'Target Val ({TARGET_VAL_RATIO:.0%})')
+    cfg_train = stats['_config']['train_ratio']
+    cfg_val = stats['_config']['val_ratio']
+    ax2.axhline(y=cfg_train, color='#3498db', linestyle='--', alpha=0.5, label=f'Target Train ({cfg_train:.0%})')
+    ax2.axhline(y=cfg_train + cfg_val, color='#2ecc71', linestyle='--', alpha=0.5, label=f'Target Val ({cfg_val:.0%})')
 
     ax2.set_xlabel('Species')
     ax2.set_ylabel('Ratio')
@@ -557,23 +562,27 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage
+  # Basic usage (outputs seabird_splits.csv next to dataset)
   python seabird_splitter_mip.py --dataset /path/to/seabird16khz_flat
 
-  # With visualization and directory creation
-  python seabird_splitter_mip.py --dataset /path/to/seabird16khz_flat --plot --create-dirs
+  # Custom split ratio
+  python seabird_splitter_mip.py --dataset /path/to/seabird16khz_flat --train_ratio 0.80 --val_ratio 0.10 --test_ratio 0.10
 
-  # Custom time limit
-  python seabird_splitter_mip.py --dataset /path/to/seabird16khz_flat --time-limit 300
+  # With visualization and custom output path
+  python seabird_splitter_mip.py --dataset /path/to/seabird16khz_flat --plot --output /path/to/splits.csv
         """
     )
 
     parser.add_argument('--dataset', type=str, required=True,
                        help='Path to flat dataset directory')
-    parser.add_argument('--output', type=str, default='splits_mip',
-                       help='Output directory name (default: splits_mip)')
-    parser.add_argument('--create-dirs', action='store_true',
-                       help='Create train/val/test directories and copy files')
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output CSV path (default: seabird_splits.csv next to dataset)')
+    parser.add_argument('--train_ratio', type=float, default=0.75,
+                       help='Target train ratio (default: 0.75)')
+    parser.add_argument('--val_ratio', type=float, default=0.10,
+                       help='Target validation ratio (default: 0.10)')
+    parser.add_argument('--test_ratio', type=float, default=0.15,
+                       help='Target test ratio (default: 0.15)')
     parser.add_argument('--plot', action='store_true',
                        help='Generate visualization plots')
     parser.add_argument('--time-limit', type=int, default=MIP_TIME_LIMIT,
@@ -583,6 +592,17 @@ Examples:
 
     args = parser.parse_args()
     verbose = not args.quiet
+
+    # Validate ratios sum to 1.0
+    ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio
+    if abs(ratio_sum - 1.0) > 1e-6:
+        print(f"ERROR: Split ratios must sum to 1.0, got {ratio_sum:.6f} "
+              f"({args.train_ratio} + {args.val_ratio} + {args.test_ratio})")
+        return 1
+
+    # Default output path: seabird_splits.csv next to dataset
+    if args.output is None:
+        args.output = str(Path(args.dataset).parent / 'seabird_splits.csv')
 
     if verbose:
         print("\n" + "=" * 80)
@@ -623,6 +643,9 @@ Examples:
     # Run MIP optimization
     assignment, stats, objective = optimize_split_mip(
         structure,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
         time_limit=args.time_limit,
         verbose=verbose
     )
@@ -630,17 +653,23 @@ Examples:
     # Print statistics
     print_statistics(stats, verbose)
 
-    # Save statistics
-    output_path = Path(args.dataset).parent / args.output
-    output_path.mkdir(parents=True, exist_ok=True)
+    # Write splits CSV
+    csv_path = Path(args.output)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    create_splits_csv(structure, assignment, csv_path,
+                      train_ratio=args.train_ratio,
+                      val_ratio=args.val_ratio,
+                      test_ratio=args.test_ratio,
+                      objective=objective,
+                      verbose=verbose)
 
-    # Save JSON statistics
-    stats_file = output_path / 'split_stats.json'
+    # Save statistics next to CSV
+    stats_dir = csv_path.parent
+    stats_file = stats_dir / 'split_stats.json'
     with open(stats_file, 'w') as f:
         json.dump(stats, f, indent=2)
 
-    # Save text statistics
-    stats_text_file = output_path / 'split_stats.txt'
+    stats_text_file = stats_dir / 'split_stats.txt'
     with open(stats_text_file, 'w') as f:
         f.write(format_statistics_text(stats))
 
@@ -650,27 +679,18 @@ Examples:
         print(f"   Text: {stats_text_file}")
         print()
 
-    # Create directories
-    if args.create_dirs:
-        create_split_directories(
-            args.dataset,
-            structure,
-            assignment,
-            args.output,
-            verbose
-        )
-
     # Plot
     if args.plot and HAS_MATPLOTLIB:
         if verbose:
             print("📊 Generating plot...")
 
-        plot_split_distribution(stats, output_path)
+        plot_split_distribution(stats, stats_dir)
         print()
 
     if verbose:
         print("=" * 80)
         print("✅ SUCCESS - MIP optimization complete!")
+        print(f"   CSV: {csv_path}")
         print("=" * 80)
         print()
 
