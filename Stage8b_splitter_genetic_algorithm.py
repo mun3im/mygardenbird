@@ -644,6 +644,47 @@ def genetic_algorithm(structure: Dict[str, Dict[str, List[str]]],
 # SAVING SPLITS
 # ============================================================================
 
+def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
+                      assignment: Dict[str, Dict[str, str]],
+                      output_path: Path,
+                      train_ratio: float = 0.75,
+                      val_ratio: float = 0.10,
+                      test_ratio: float = 0.15,
+                      objective: float = 0,
+                      seed: int = 42,
+                      verbose: bool = True):
+    """Write a CSV with columns: filename,split."""
+    if verbose:
+        print(f"📄 Writing splits CSV: {output_path}")
+
+    train_pct = int(round(train_ratio * 100))
+    val_pct = int(round(val_ratio * 100))
+    test_pct = int(round(test_ratio * 100))
+
+    rows = []
+    for class_name in sorted(structure.keys()):
+        sources = structure[class_name]
+        for source in sorted(sources.keys()):
+            split = assignment[class_name][source]
+            for filename in sorted(sources[source]):
+                rows.append((filename, split))
+
+    with open(output_path, 'w') as f:
+        f.write(f"# split_ratio={train_pct}:{val_pct}:{test_pct} seed={seed} objective={objective:.0f} solver=genetic_algorithm\n")
+        f.write("filename,split\n")
+        for filename, split in rows:
+            f.write(f"{filename},{split}\n")
+
+    if verbose:
+        counts = {'train': 0, 'val': 0, 'test': 0}
+        for _, split in rows:
+            counts[split] += 1
+        print(f"   ✓ Wrote {len(rows)} rows (train={counts['train']}, val={counts['val']}, test={counts['test']})")
+        print()
+
+    return output_path
+
+
 def save_splits(structure: Dict[str, Dict[str, List[str]]],
                assignment: Dict[str, Dict[str, str]],
                output_dir: str = './splits') -> Dict:
@@ -1055,8 +1096,8 @@ Genetic Algorithm:
                        help='Output directory for physical splits (if --create-dirs)')
     parser.add_argument('--from-splits', type=str, default=None,
                        help='Skip optimization and create directories from existing split files')
-    parser.add_argument('--seed', type=int, default=None,
-                       help='Random seed for reproducibility')
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Random seed for reproducibility (default: 42)')
     parser.add_argument('--population', type=int, default=POPULATION_SIZE,
                        help='Population size')
     parser.add_argument('--generations', type=int, default=MAX_GENERATIONS,
@@ -1223,6 +1264,16 @@ Genetic Algorithm:
     if verbose:
         print("\nSaving optimized splits...")
     stats = save_splits(structure, best_assignment, args.output)
+
+    # Write splits CSV
+    csv_path = Path(args.output) / 'seabird_splits.csv'
+    create_splits_csv(structure, best_assignment, csv_path,
+                      train_ratio=TARGET_TRAIN_RATIO,
+                      val_ratio=TARGET_VAL_RATIO,
+                      test_ratio=TARGET_TEST_RATIO,
+                      objective=best_score,
+                      seed=args.seed if args.seed else 42,
+                      verbose=verbose)
 
     # Plot optimization history if requested
     if args.plot:
