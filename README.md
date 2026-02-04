@@ -26,7 +26,7 @@ End-to-end pipeline from Xeno-Canto downloads to optimized train/val/test splits
 | 8a    | `Stage8a_splitter_mip.py`                  | **MIP-based splitting (recommended)** |
 | 8b    | `Stage8b_splitter_genetic_algorithm.py`    | GA-based splitting                    |
 | 8c    | `Stage8c_splitter_simulated_annealing.py`  | SA-based splitting                    |
-| 9     | Stage9_train_seabird_multifeature.py       | Train 4 CNN models                    |
+| 9     | `Stage9_train_seabird_multifeature.py`       | Train 4 CNN models                    |
 
 ## MIP Splitter (Stage 8a)
 
