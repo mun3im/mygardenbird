@@ -15,6 +15,7 @@ from string import digits
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+from typing import List
 import argparse
 import librosa
 import matplotlib.pyplot as plt
@@ -159,6 +160,29 @@ def audio_to_mfcc_deltas(audio, label, augment=False):
     mfcc_rgb = PREPROCESS_FN(mfcc_rgb)
     return mfcc_rgb.astype(np.float32), label
 
+def load_splits_from_csv(csv_path: str, split: str = 'train') -> List[str]:
+    """
+    Load file paths for a specific split from CSV file.
+
+    Args:
+        csv_path: Path to seabird_splits.csv
+        split: 'train', 'val', or 'test'
+
+    Returns:
+        List of filenames for the specified split
+    """
+    import csv
+
+    files = []
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row['split'] == split:
+                files.append(row['filename'])
+
+    return files
+
+
 def build_dataset(
     root_dir,
     classes=None,
@@ -167,7 +191,9 @@ def build_dataset(
     shuffle=False,
     batch_size=32,
     num_parallel=4,
-    seed=42
+    seed=42,
+    csv_path=None,
+    split_name=None
 ):
     if feature == 'mel':
         feature_func = audio_to_melspec
@@ -189,15 +215,31 @@ def build_dataset(
     paths = []
     labels = []
 
-    for cls in classes:
-        cls_dir = os.path.join(root_dir, cls)
-        if not os.path.isdir(cls_dir):
-            continue
+    # If CSV path is provided, use it to filter files
+    if csv_path and split_name:
+        csv_files = load_splits_from_csv(csv_path, split_name)
+        csv_files_set = set(csv_files)
 
-        for file in os.listdir(cls_dir):
-            if file.lower().endswith(('.wav', '.mp3')):
-                paths.append(os.path.join(cls_dir, file))
-                labels.append(class_to_idx[cls])
+        for cls in classes:
+            cls_dir = os.path.join(root_dir, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+
+            for file in os.listdir(cls_dir):
+                if file.lower().endswith(('.wav', '.mp3')) and file in csv_files_set:
+                    paths.append(os.path.join(cls_dir, file))
+                    labels.append(class_to_idx[cls])
+    else:
+        # Original behavior: use all files in directory
+        for cls in classes:
+            cls_dir = os.path.join(root_dir, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+
+            for file in os.listdir(cls_dir):
+                if file.lower().endswith(('.wav', '.mp3')):
+                    paths.append(os.path.join(cls_dir, file))
+                    labels.append(class_to_idx[cls])
 
     if not paths:
         raise ValueError(f"No audio files found in {root_dir}")
@@ -560,6 +602,10 @@ def main():
     parser.add_argument('--train_dir', default='/Volumes/Evo/seabird16k/train')
     parser.add_argument('--val_dir', default='/Volumes/Evo/seabird16k/val')
     parser.add_argument('--test_dir', default='/Volumes/Evo/seabird16k/test')
+    parser.add_argument('--splits_csv', default=None, type=str,
+                       help='Path to seabird_splits.csv (if provided, uses CSV-based splits instead of directories)')
+    parser.add_argument('--dataset_root', default=None, type=str,
+                       help='Root directory containing all audio files (required when using --splits_csv)')
     parser.add_argument('--sample_rate', type=int, default=16000)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_epochs', type=int, default=50)
@@ -618,19 +664,45 @@ def main():
     print()
 
     print("Building datasets...")
-    train_ds, classes = build_dataset(
-        args.train_dir, feature=args.feature,
-        augment=True, shuffle=True, batch_size=args.batch_size,
-        seed=args.seed
-    )
-    val_ds, _ = build_dataset(
-        args.val_dir, feature=args.feature,
-        augment=False, shuffle=False, batch_size=args.batch_size
-    )
-    test_ds, _ = build_dataset(
-        args.test_dir, feature=args.feature,
-        augment=False, shuffle=False, batch_size=args.batch_size
-    )
+
+    # Check if using CSV-based splits
+    if args.splits_csv:
+        if not args.dataset_root:
+            raise ValueError("--dataset_root is required when using --splits_csv")
+
+        print(f"Using CSV splits from: {args.splits_csv}")
+        print(f"Dataset root: {args.dataset_root}")
+
+        train_ds, classes = build_dataset(
+            args.dataset_root, feature=args.feature,
+            augment=True, shuffle=True, batch_size=args.batch_size,
+            seed=args.seed, csv_path=args.splits_csv, split_name='train'
+        )
+        val_ds, _ = build_dataset(
+            args.dataset_root, feature=args.feature,
+            augment=False, shuffle=False, batch_size=args.batch_size,
+            csv_path=args.splits_csv, split_name='val'
+        )
+        test_ds, _ = build_dataset(
+            args.dataset_root, feature=args.feature,
+            augment=False, shuffle=False, batch_size=args.batch_size,
+            csv_path=args.splits_csv, split_name='test'
+        )
+    else:
+        # Original directory-based approach
+        train_ds, classes = build_dataset(
+            args.train_dir, feature=args.feature,
+            augment=True, shuffle=True, batch_size=args.batch_size,
+            seed=args.seed
+        )
+        val_ds, _ = build_dataset(
+            args.val_dir, feature=args.feature,
+            augment=False, shuffle=False, batch_size=args.batch_size
+        )
+        test_ds, _ = build_dataset(
+            args.test_dir, feature=args.feature,
+            augment=False, shuffle=False, batch_size=args.batch_size
+        )
 
     print(f"✓ Datasets built with {args.feature} features")
     print(f"✓ Classes: {len(classes)}")

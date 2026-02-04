@@ -587,6 +587,8 @@ Examples:
                        help='Generate visualization plots')
     parser.add_argument('--time-limit', type=int, default=MIP_TIME_LIMIT,
                        help=f'MIP solver time limit in seconds (default: {MIP_TIME_LIMIT})')
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Random seed for reproducibility (default: 42)')
     parser.add_argument('--quiet', action='store_true',
                        help='Suppress progress messages')
 
@@ -661,6 +663,7 @@ Examples:
                       val_ratio=args.val_ratio,
                       test_ratio=args.test_ratio,
                       objective=objective,
+                      seed=args.seed,
                       verbose=verbose)
 
     # Save statistics next to CSV
