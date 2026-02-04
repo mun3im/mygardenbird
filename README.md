@@ -2,6 +2,8 @@
 
 Dataset creation and validation pipeline for Southeast Asian bird audio classification.
 
+**Dataset:** The SEAbird dataset (6000 annotated 3-second segments, 10 species) is available on Zenodo: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18112566.svg)](https://doi.org/10.5281/zenodo.18112566)
+
 ## Overview
 
 End-to-end pipeline from Xeno-Canto downloads to optimized train/val/test splits:
