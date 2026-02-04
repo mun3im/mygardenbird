@@ -14,18 +14,19 @@ End-to-end pipeline from Xeno-Canto downloads to optimized train/val/test splits
 
 ## Pipeline Stages
 
-| Stage | Script | Description |
-|-------|--------|-------------|
-| 1 | `Stage1_xc_fetch_metadata.py` | Fetch recording metadata |
-| 2 | `Stage2_xc_dload_all_from_species_list.py` | Download recordings |
-| 3 | `Stage3_xc_dload_delta_by_id.py` | Download specific IDs |
-| 4 | `Stage4_eda_downloads.py` | Exploratory data analysis |
-| 5 | `Stage5_find_segments_interactive.py` | Interactive annotation GUI |
-| 6 | `Stage6_extract_annotated_segments.py` | Extract WAV segments |
-| 7 | `Stage7_quality_control_selection.py` | Quality control |
-| 8a | `Stage8a_splitter_mip.py` | **MIP-based splitting (recommended)** |
-| 8b | `Stage8b_splitter_genetic_algorithm.py` | GA-based splitting |
-| 8c | `Stage8c_splitter_simulated_annealing.py` | SA-based splitting |
+| Stage | Script                                     | Description                           |
+| ----- | ------------------------------------------ | ------------------------------------- |
+| 1     | `Stage1_xc_fetch_metadata.py`              | Fetch recording metadata              |
+| 2     | `Stage2_xc_dload_all_from_species_list.py` | Download recordings                   |
+| 3     | `Stage3_xc_dload_delta_by_id.py`           | Download specific IDs                 |
+| 4     | `Stage4_eda_downloads.py`                  | Exploratory data analysis             |
+| 5     | `Stage5_find_segments_interactive.py`      | Interactive annotation GUI            |
+| 6     | `Stage6_extract_annotated_segments.py`     | Extract WAV segments                  |
+| 7     | `Stage7_quality_control_selection.py`      | Quality control                       |
+| 8a    | `Stage8a_splitter_mip.py`                  | **MIP-based splitting (recommended)** |
+| 8b    | `Stage8b_splitter_genetic_algorithm.py`    | GA-based splitting                    |
+| 8c    | `Stage8c_splitter_simulated_annealing.py`  | SA-based splitting                    |
+| 9     | Stage9_train_seabird_multifeature.py       | Train 4 CNN models                    |
 
 ## MIP Splitter (Stage 8a)
 
