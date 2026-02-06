@@ -170,15 +170,23 @@ def load_splits_from_csv(csv_path: str, split: str = 'train') -> List[str]:
 
     Returns:
         List of filenames for the specified split
+
+    Note:
+        Handles comment lines starting with '#' which are produced
+        by Stage8 splitter scripts (MIP, genetic algorithm, simulated annealing).
     """
     import csv
+    from io import StringIO
 
     files = []
     with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row['split'] == split:
-                files.append(row['filename'])
+        # Filter out comment lines (Stage8 scripts add metadata comments)
+        content = ''.join(line for line in f if not line.startswith('#'))
+
+    reader = csv.DictReader(StringIO(content))
+    for row in reader:
+        if row['split'] == split:
+            files.append(row['filename'])
 
     return files
 
@@ -603,9 +611,9 @@ def main():
     parser.add_argument('--val_dir', default='/Volumes/Evo/seabird16k/val')
     parser.add_argument('--test_dir', default='/Volumes/Evo/seabird16k/test')
     parser.add_argument('--splits_csv', default=None, type=str,
-                       help='Path to seabird_splits.csv (if provided, uses CSV-based splits instead of directories)')
-    parser.add_argument('--dataset_root', default=None, type=str,
-                       help='Root directory containing all audio files (required when using --splits_csv)')
+                       help='Path to splits CSV file (if provided, uses CSV-based splits instead of directories). Can be relative to current directory.')
+    parser.add_argument('--dataset_root', default='/Volumes/Evo/seabird16khz_flat', type=str,
+                       help='Root directory containing all audio files (used with --splits_csv)')
     parser.add_argument('--sample_rate', type=int, default=16000)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_epochs', type=int, default=50)
@@ -667,9 +675,6 @@ def main():
 
     # Check if using CSV-based splits
     if args.splits_csv:
-        if not args.dataset_root:
-            raise ValueError("--dataset_root is required when using --splits_csv")
-
         print(f"Using CSV splits from: {args.splits_csv}")
         print(f"Dataset root: {args.dataset_root}")
 

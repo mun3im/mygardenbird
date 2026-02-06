@@ -1090,6 +1090,12 @@ Genetic Algorithm:
                        help='Path to dataset directory')
     parser.add_argument('--output', type=str, default='./splits_ga',
                        help='Output directory for split files')
+    parser.add_argument('--train_ratio', type=float, default=0.75,
+                       help='Target train ratio (default: 0.75)')
+    parser.add_argument('--val_ratio', type=float, default=0.10,
+                       help='Target validation ratio (default: 0.10)')
+    parser.add_argument('--test_ratio', type=float, default=0.15,
+                       help='Target test ratio (default: 0.15)')
     parser.add_argument('--create-dirs', action='store_true',
                        help='Create physical split directories with copied files')
     parser.add_argument('--dirs-output', type=str, default='./dataset_splits_ga',
@@ -1119,6 +1125,19 @@ Genetic Algorithm:
 
     args = parser.parse_args()
     verbose = not args.quiet
+
+    # Validate ratios sum to 1.0
+    ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio
+    if abs(ratio_sum - 1.0) > 1e-6:
+        print(f"ERROR: Split ratios must sum to 1.0, got {ratio_sum:.6f} "
+              f"({args.train_ratio} + {args.val_ratio} + {args.test_ratio})")
+        return
+
+    # Update global ratio constants from command line arguments
+    global TARGET_TRAIN_RATIO, TARGET_VAL_RATIO, TARGET_TEST_RATIO
+    TARGET_TRAIN_RATIO = args.train_ratio
+    TARGET_VAL_RATIO = args.val_ratio
+    TARGET_TEST_RATIO = args.test_ratio
 
     # Check if using existing splits (skip optimization mode)
     if args.from_splits:
