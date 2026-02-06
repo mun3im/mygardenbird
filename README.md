@@ -59,16 +59,64 @@ xc1003831_2642.wav,train
 
 Ready-to-use splits for 6000-sample dataset (seed=42, all objective=0):
 
-```
-splits_csv/
-  seabird_splits_70_15_15_seed42.csv
-  seabird_splits_75_10_15_seed42.csv
-  seabird_splits_80_10_10_seed42.csv
+| File | Algorithm | Train | Val | Test |
+|------|-----------|-------|-----|------|
+| `seabird_splits_mip_75_10_15.csv` | MIP | 75% | 10% | 15% |
+| `seabird_splits_mip_80_10_10.csv` | MIP | 80% | 10% | 10% |
+| `seabird_splits_mip_70_15_15.csv` | MIP | 70% | 15% | 15% |
+| `seabird_splits_ga_75_10_15.csv` | Genetic Algorithm | 75% | 10% | 15% |
+| `seabird_splits_ga_80_10_10.csv` | Genetic Algorithm | 80% | 10% | 10% |
+| `seabird_splits_ga_70_15_15.csv` | Genetic Algorithm | 70% | 15% | 15% |
+
+## Training Results
+
+Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN architectures, 3 feature types, and 3 random seeds (42, 100, 786). All models use ImageNet pretrained weights with 75:10:15 train/val/test split.
+
+### Summary (Test Accuracy %)
+
+| Model | Mel | STFT | MFCC | Best |
+|-------|-----|------|------|------|
+| **EfficientNetB0** | **93.4 ± 2.6** | 91.0 ± 1.5 | 89.4 ± 1.3 | **93.4%** |
+| ResNet50 | 88.8 ± 2.9 | 91.0 ± 1.1 | 86.0 ± 1.6 | 91.0% |
+| VGG16 | 88.2 ± 0.8 | 86.7 ± 1.8 | 81.9 ± 3.4 | 88.2% |
+| MobileNetV3S | 63.5 ± 0.5 | 58.3 ± 0.8 | 58.0 ± 0.2 | 63.5% |
+
+### Key Findings
+
+- **Best model:** EfficientNetB0 + Mel spectrogram (93.4% accuracy)
+- **Best feature:** Mel spectrogram consistently outperforms STFT and MFCC
+- **Most stable:** VGG16 + Mel (lowest variance across seeds)
+- **MobileNetV3S:** Underperforms on this dataset; likely needs architecture tuning for audio
+
+### Detailed Results
+
+| Model | Feature | Seed 42 | Seed 100 | Seed 786 | Mean | Std |
+|-------|---------|---------|----------|----------|------|-----|
+| EfficientNetB0 | mel | 95.89 | 93.56 | 90.67 | 93.37 | 2.62 |
+| EfficientNetB0 | stft | 92.33 | 91.33 | 89.33 | 91.00 | 1.53 |
+| EfficientNetB0 | mfcc | 90.33 | 90.00 | 87.89 | 89.41 | 1.33 |
+| ResNet50 | mel | 85.89 | 88.89 | 91.67 | 88.81 | 2.89 |
+| ResNet50 | stft | 91.78 | 89.67 | 91.44 | 90.96 | 1.13 |
+| ResNet50 | mfcc | 84.33 | 87.56 | 86.22 | 86.04 | 1.62 |
+| VGG16 | mel | 87.89 | 87.67 | 89.11 | 88.22 | 0.78 |
+| VGG16 | stft | 87.89 | 87.56 | 84.56 | 86.67 | 1.84 |
+| VGG16 | mfcc | 79.56 | 80.33 | 85.78 | 81.89 | 3.39 |
+| MobileNetV3S | mel | 62.89 | 63.89 | 63.67 | 63.48 | 0.53 |
+| MobileNetV3S | stft | 59.11 | 57.56 | 58.22 | 58.30 | 0.78 |
+| MobileNetV3S | mfcc | 58.22 | 57.78 | 58.00 | 58.00 | 0.22 |
+
+### Training Command
+
+```bash
+python Stage9_train_seabird_multifeature.py \
+    --splits_csv ./seabird_splits_mip_75_10_15.csv \
+    --model efficientnetb0 \
+    --feature mel \
+    --use_pretrained \
+    --seed 42
 ```
 
-## Training
-
-For audio-focused CNN training, see [mun3im/mynanet](https://github.com/mun3im/mynanet).
+For audio-focused CNN training, see also [mun3im/mynanet](https://github.com/mun3im/mynanet).
 
 ## Installation
 
