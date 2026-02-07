@@ -95,6 +95,22 @@ Total MFLOPs = CNN MFLOPs + Feature MFLOPs
 | MobileNetV3S   | Mel          | 60         | 30             | **90**           | 63.5         |
 
 
+### Feaature MFLOP Accounting
+
+**Input:** 16kHz × 3s audio (48,000 samples) → 224×224 spectrogram for CNN
+
+| Operation Group | STFT | Mel Spectrogram | MFCC |
+|----------------|------|-----------------|------|
+| Framing + Windowing | 2 MFLOPs | 2 MFLOPs | 2 MFLOPs |
+| FFT (per frame) | 10 MFLOPs | 10 MFLOPs | 10 MFLOPs |
+| Magnitude / Power Spectrum | 3 MFLOPs | 3 MFLOPs | 3 MFLOPs |
+| Mel Filterbank (matrix multiply) | - | 12 MFLOPs | 12 MFLOPs |
+| Log Compression | - | 3 MFLOPs | 3 MFLOPs |
+| DCT (Type-II) | - | - | 15 MFLOPs |
+| **Total MFLOPs** | **15** | **30** | **45** |
+
+
+
 
 ### Key Findings
 
