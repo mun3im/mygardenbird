@@ -118,6 +118,7 @@ Total MFLOPs = CNN MFLOPs + Feature MFLOPs
 - **Best feature:** Mel spectrogram consistently outperforms STFT and MFCC
 - **Most stable:** VGG16 + Mel (lowest variance across seeds)
 - **MobileNetV3S:** Underperforms on this dataset; likely needs architecture tuning for audio
+- **MFCC:** Totally unsuitable for bird sounds (although it works well with speech processing)
 
 ### **CNN Ranking**
 
