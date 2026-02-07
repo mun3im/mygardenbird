@@ -81,6 +81,10 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 | VGG16 | 88.2 ± 0.8 | 86.7 ± 1.8 | 81.9 ± 3.4 | 88.2% |
 | MobileNetV3S | 63.5 ± 0.5 | 58.3 ± 0.8 | 58.0 ± 0.2 | 63.5% |
 
+
+![CNN vs Feature](cnn-vs-feature.png)
+
+
 ### Key Findings
 
 - **Best model:** EfficientNetB0 + Mel spectrogram (93.4% accuracy)
