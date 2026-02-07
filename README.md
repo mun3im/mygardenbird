@@ -103,6 +103,13 @@ Total MFLOPs = CNN MFLOPs + Feature MFLOPs
 - **Most stable:** VGG16 + Mel (lowest variance across seeds)
 - **MobileNetV3S:** Underperforms on this dataset; likely needs architecture tuning for audio
 
+### **CNN Ranking**
+
+- **EfficientNetB0 + Mel** lies on the Pareto front: highest accuracy at low–moderate compute.
+- **ResNet50** is Pareto-dominated: much higher compute for marginal accuracy gain.
+- **VGG16** is clearly inefficient.
+- **MobileNetV3S** is compute-efficient but accuracy-limited → architectural bottleneck.
+
 ### Detailed Results
 
 | Model | Feature | Seed 42 | Seed 100 | Seed 786 | Mean | Std |
