@@ -335,18 +335,20 @@ def create_model(model_name='mobilenetv3s', num_classes=10, use_pretrained=True)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
-    # MobileNetV3s needs higher dropout to prevent overfitting on small datasets
+    # MobileNetV3s was underfitting - reduce dropout and add more capacity
     if model_name == 'mobilenetv3s':
-        dropout1 = 0.5  # Increased from 0.3
-        dropout2 = 0.4  # Increased from 0.2
+        dropout1 = 0.3
+        dropout2 = 0.2
+        hidden_units = 512  # More capacity for audio features
     else:
         dropout1 = 0.3
         dropout2 = 0.2
+        hidden_units = 256
 
     model = keras.Sequential([
         base,
         layers.Dropout(dropout1),
-        layers.Dense(256, activation='relu'),
+        layers.Dense(hidden_units, activation='relu'),
         layers.Dropout(dropout2),
         layers.Dense(num_classes, activation='softmax')
     ])
@@ -721,8 +723,8 @@ def main():
         learning_rate = args.learning_rate * 0.1
         print(f"  Using reduced learning rate for VGG16: {learning_rate}")
     elif args.model == 'mobilenetv3s':
-        learning_rate = args.learning_rate * 0.5  # Reduce for MobileNet to prevent fast overfitting
-        print(f"  Using reduced learning rate for MobileNetV3s: {learning_rate}")
+        learning_rate = args.learning_rate  # Use full learning rate - was underfitting
+        print(f"  Using full learning rate for MobileNetV3s: {learning_rate}")
     else:
         learning_rate = args.learning_rate
 
@@ -739,10 +741,7 @@ def main():
         except AttributeError:
             optimizer = optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0)
 
-    # Note: Label smoothing would help with overfitting, but SparseCategoricalCrossentropy
-    # doesn't support it in TF 2.15. Would need to convert to one-hot and use
-    # CategoricalCrossentropy(label_smoothing=0.1) for MobileNet.
-    label_smoothing = 0.0  # Not supported by SparseCategoricalCrossentropy
+    label_smoothing = 0.0
     loss_fn = losses.SparseCategoricalCrossentropy()
 
     model.compile(
@@ -755,15 +754,14 @@ def main():
     print(f"  Parameters: {model.count_params():,}")
     print()
 
-    # MobileNet overfits quickly - use tighter early stopping
+    # MobileNetV3S needs longer training - was underfitting
     if args.model == 'mobilenetv3s':
-        early_stopping_patience = 7
-        lr_plateau_patience = 3
+        early_stopping_patience = 15  # More patience to find good solution
+        lr_plateau_patience = 5
         monitor_metric = 'val_accuracy'
         monitor_mode = 'max'
-        # Store dropout values for saving later
-        dropout1 = 0.5
-        dropout2 = 0.4
+        dropout1 = 0.3
+        dropout2 = 0.2
         print(f"  MobileNet-specific: Early stopping patience={early_stopping_patience}, monitoring {monitor_metric}")
     else:
         early_stopping_patience = 10
@@ -787,7 +785,8 @@ def main():
     start_time = time.time()
 
     if args.use_pretrained and args.model in ['vgg16', 'mobilenetv3s']:
-        print(f"{args.model} warmup: training classifier head with frozen base...")
+        warmup_epochs = 10 if args.model == 'mobilenetv3s' else 5
+        print(f"{args.model} warmup: training classifier head with frozen base ({warmup_epochs} epochs)...")
         base.trainable = False
 
         model.compile(
@@ -799,23 +798,19 @@ def main():
         model.fit(
             train_ds,
             validation_data=val_ds,
-            epochs=5,
+            epochs=warmup_epochs,
             verbose=1
         )
 
         print(f"{args.model} fine-tuning: unfreezing top layers with lower learning rate...")
 
         if args.model == 'mobilenetv3s':
-            # MobileNetV3S is lightweight - only unfreeze top 20% of layers
-            # to preserve pretrained features and prevent overfitting
-            n = int(len(base.layers) * 0.8)
-            for layer in base.layers[:n]:
-                layer.trainable = False
-            for layer in base.layers[n:]:
-                layer.trainable = True
+            # MobileNetV3S: unfreeze all layers for full adaptation to audio domain
+            # ImageNet features don't transfer well to spectrograms - need full fine-tuning
+            base.trainable = True
 
-            fine_tune_learning_rate = 5e-5  # Increased from 1e-6 for slightly faster fine-tuning
-            fine_tune_weight_decay = 1e-4
+            fine_tune_learning_rate = 1e-4  # Higher LR for better adaptation
+            fine_tune_weight_decay = 1e-5  # Less regularization - was underfitting
         else:
             # VGG: unfreeze entire base
             base.trainable = True
