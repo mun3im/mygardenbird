@@ -67,6 +67,9 @@ Ready-to-use splits for 6000-sample dataset (seed=42, all objective=0):
 | `seabird_splits_ga_75_10_15.csv` | Genetic Algorithm | 75% | 10% | 15% |
 | `seabird_splits_ga_80_10_10.csv` | Genetic Algorithm | 80% | 10% | 10% |
 | `seabird_splits_ga_70_15_15.csv` | Genetic Algorithm | 70% | 15% | 15% |
+| `seabird_splits_sa_75_10_15.csv` | Simulated Annealing | 75% | 10% | 15% |
+| `seabird_splits_sa_80_10_10.csv` | Simulated Annealing | 80% | 10% | 10% |
+| `seabird_splits_sa_70_15_15.csv` | Simulated Annealing | 70% | 15% | 15% |
 
 ## Training Results
 
