@@ -98,31 +98,29 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 
 ![CNN vs Feature](cnn-vs-feature.svg)
 
-### Selected total MFLOPs calculations
+### Feature MFLOP Accounting
 
-Total MFLOPs = CNN MFLOPs + Feature MFLOPs
+**Input:** 16kHz × 3s audio (48,000 samples) → 224×224 spectrogram
+**Parameters:** N_FFT=2048, hop=214, 224 frames, 128 mel bins
+
+| Operation | STFT | Mel | MFCC |
+|-----------|------|-----|------|
+| Framing + Windowing (224 × 2048) | 0.5 | 0.5 | 0.5 |
+| FFT (224 frames × 5N log N) | 25.2 | 25.2 | 25.2 |
+| Magnitude (224 × 1025 × 3 ops) | 0.7 | 0.7 | 0.7 |
+| Mel Filterbank (sparse, ~20 weights/bin) | - | 5.1 | 5.1 |
+| Log Compression (28K × 10 ops) | - | 0.3 | 0.3 |
+| DCT-II (128 × 80 × 224 × 2) | - | - | 4.6 |
+| **Total MFLOPs** | **26** | **32** | **36** |
+
+### Total MFLOPs (CNN + Feature)
 
 | Model          | Best Feature | CNN MFLOPs | Feature MFLOPs | **Total MFLOPs** | Accuracy (%) |
 | -------------- | ------------ | ---------- | -------------- | ---------------- | ------------ |
-| EfficientNetB0 | Mel          | 390        | 30             | **420**          | 93.4         |
-| ResNet50       | STFT         | 4100       | 15             | **4115**         | 91.0         |
-| VGG16          | Mel          | 15500      | 30             | **15530**        | 88.2         |
-| MobileNetV3S   | Mel          | 60         | 30             | **90**           | 63.5         |
-
-
-### Feaature MFLOP Accounting
-
-**Input:** 16kHz × 3s audio (48,000 samples) → 224×224 spectrogram for CNN
-
-| Operation Group | STFT | Mel Spectrogram | MFCC |
-|----------------|------|-----------------|------|
-| Framing + Windowing | 2 MFLOPs | 2 MFLOPs | 2 MFLOPs |
-| FFT (per frame) | 10 MFLOPs | 10 MFLOPs | 10 MFLOPs |
-| Magnitude / Power Spectrum | 3 MFLOPs | 3 MFLOPs | 3 MFLOPs |
-| Mel Filterbank (matrix multiply) | - | 12 MFLOPs | 12 MFLOPs |
-| Log Compression | - | 3 MFLOPs | 3 MFLOPs |
-| DCT (Type-II) | - | - | 15 MFLOPs |
-| **Total MFLOPs** | **15** | **30** | **45** |
+| EfficientNetB0 | Mel          | 390        | 32             | **422**          | 93.4         |
+| ResNet50       | STFT         | 4100       | 26             | **4126**         | 91.0         |
+| VGG16          | Mel          | 15500      | 32             | **15532**        | 88.2         |
+| MobileNetV3S   | Mel          | 60         | 32             | **92**           | 63.5         |
 
 
 
