@@ -55,6 +55,18 @@ xc1003831_2642.wav,train
 - Reproducible via seed parameter
 - CSV output for use with any training framework
 
+## Splitter Performance Comparison
+
+Benchmark on 6000-sample dataset (10 classes, 1074 sources) with 3 split ratios:
+
+| Algorithm | Avg Time | 75:10:15 | 80:10:10 | 70:15:15 | Solution Quality |
+|-----------|----------|----------|----------|----------|------------------|
+| **MIP** | **1.1s** | 1.17s | 1.24s | 1.03s | Optimal (objective=0) |
+| GA | 7.5s | 3.72s | 3.04s | 15.59s | Optimal (objective=0) |
+| SA | ~19 min | 19.2 min | 19.6 min | 17.6 min | Optimal (objective=0) |
+
+**Recommendation:** Use MIP (Stage8a) for fastest results with guaranteed optimality.
+
 ## Pre-generated Splits
 
 Ready-to-use splits for 6000-sample dataset (seed=42, all objective=0):
