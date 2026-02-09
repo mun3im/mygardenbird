@@ -103,6 +103,7 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 ### Feature MFLOP Accounting
 
 **Input:** 16kHz × 3s audio (48,000 samples) → 224×224 spectrogram
+
 **Parameters:** N_FFT=2048, hop=214, 224 frames, 128 mel bins
 
 | Operation | STFT | Mel | MFCC |
