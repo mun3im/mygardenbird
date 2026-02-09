@@ -1,8 +1,65 @@
 #!/usr/bin/env python3
 """
 Train CNNs for seabird audio classification with multiple feature types.
+
 Supports: Mel Spectrogram, STFT, MFCC+deltas
 Models: MobileNetV3Small, VGG16, EfficientNetB0, ResNet50
+
+Usage Examples
+--------------
+# Run with all defaults (mobilenetv3s, mel, seed=42, batch_size=32, epochs=50):
+python Stage9_train_seabird_multifeature.py --use_pretrained
+
+# Select different models:
+python Stage9_train_seabird_multifeature.py --model efficientnetb0 --use_pretrained
+python Stage9_train_seabird_multifeature.py --model resnet50 --use_pretrained
+python Stage9_train_seabird_multifeature.py --model vgg16 --use_pretrained
+
+# Select different feature types:
+python Stage9_train_seabird_multifeature.py --feature mel --use_pretrained   # Mel spectrogram (default)
+python Stage9_train_seabird_multifeature.py --feature stft --use_pretrained  # STFT magnitude
+python Stage9_train_seabird_multifeature.py --feature mfcc --use_pretrained  # MFCC with deltas
+
+# Specify random seed for reproducibility:
+python Stage9_train_seabird_multifeature.py --seed 42 --use_pretrained
+python Stage9_train_seabird_multifeature.py --seed 100 --use_pretrained
+
+# Use CSV-based splits (recommended):
+python Stage9_train_seabird_multifeature.py \\
+    --splits_csv ./seabird_splits_mip_75_10_15.csv \\
+    --dataset_root /path/to/audio/files \\
+    --use_pretrained
+
+# Full example with all options:
+python Stage9_train_seabird_multifeature.py \\
+    --model efficientnetb0 \\
+    --feature mel \\
+    --splits_csv ./seabird_splits_mip_75_10_15.csv \\
+    --dataset_root /Volumes/Evo/seabird16khz_flat \\
+    --batch_size 32 \\
+    --num_epochs 50 \\
+    --learning_rate 0.001 \\
+    --seed 42 \\
+    --use_pretrained \\
+    --output_dir ./results
+
+# Force CPU training (when GPU is unavailable):
+python Stage9_train_seabird_multifeature.py --force_cpu --use_pretrained
+
+Defaults
+--------
+--model          mobilenetv3s
+--feature        mel
+--seed           42
+--batch_size     32
+--num_epochs     50
+--learning_rate  0.001
+--sample_rate    16000
+--n_mels         224
+--n_fft          2048
+--num_workers    4
+--output_dir     ./results
+--dataset_root   /Volumes/Evo/seabird16khz_flat
 """
 
 import os
