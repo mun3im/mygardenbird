@@ -1,4 +1,4 @@
-# How to create annotations with Stage3_find_segments_interactive.py
+# How to create annotations with Stage5_find_segments_interactive.py
 
 This tool was used to create the segment annotations for the
 [SEA-Bird dataset](https://github.com/mun3im/seabird) -- 6,000 three-second
