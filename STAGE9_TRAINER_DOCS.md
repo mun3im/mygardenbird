@@ -1,0 +1,159 @@
+# Stage 9: CNN Training for Bird Audio Classification
+
+Train CNN models on spectral features extracted from bird audio recordings.
+
+## Supported Models
+
+| Model | Parameters | MFLOPs | Best For |
+|-------|------------|--------|----------|
+| `efficientnetb0` | 4.0M | 390 | Highest accuracy (93.4%) |
+| `mobilenetv3s` | 1.2M | 60 | Edge deployment (90.1% at 4.6x less compute) |
+| `resnet50` | 23.5M | 4100 | Baseline comparison |
+| `vgg16` | 134M | 15500 | Legacy/stability |
+
+## Supported Features
+
+| Feature | Description | MFLOPs | Recommendation |
+|---------|-------------|--------|----------------|
+| `mel` | Mel spectrogram (224 bins) | 32 | Best for bird audio |
+| `stft` | STFT magnitude | 26 | Alternative |
+| `mfcc` | MFCC with delta/delta-delta | 36 | Not recommended for birds |
+
+## Quick Start
+
+### Run with Defaults
+
+```bash
+# Default: mobilenetv3s + mel + seed=42
+python Stage9_train_seabird_multifeature.py --use_pretrained
+```
+
+### Select Model
+
+```bash
+python Stage9_train_seabird_multifeature.py --model efficientnetb0 --use_pretrained
+python Stage9_train_seabird_multifeature.py --model resnet50 --use_pretrained
+python Stage9_train_seabird_multifeature.py --model vgg16 --use_pretrained
+python Stage9_train_seabird_multifeature.py --model mobilenetv3s --use_pretrained
+```
+
+### Select Feature Type
+
+```bash
+python Stage9_train_seabird_multifeature.py --feature mel --use_pretrained   # Mel spectrogram
+python Stage9_train_seabird_multifeature.py --feature stft --use_pretrained  # STFT magnitude
+python Stage9_train_seabird_multifeature.py --feature mfcc --use_pretrained  # MFCC with deltas
+```
+
+### Reproducibility with Seeds
+
+```bash
+python Stage9_train_seabird_multifeature.py --seed 42 --use_pretrained
+python Stage9_train_seabird_multifeature.py --seed 100 --use_pretrained
+python Stage9_train_seabird_multifeature.py --seed 786 --use_pretrained
+```
+
+## Using CSV-Based Splits (Recommended)
+
+CSV splits ensure no data leakage between train/val/test sets by keeping segments from the same source recording together.
+
+```bash
+python Stage9_train_seabird_multifeature.py \
+    --splits_csv ./seabird_splits_mip_75_10_15.csv \
+    --dataset_root /path/to/audio/files \
+    --use_pretrained
+```
+
+### Available Pre-generated Splits
+
+| File | Train | Val | Test |
+|------|-------|-----|------|
+| `seabird_splits_mip_75_10_15.csv` | 75% | 10% | 15% |
+| `seabird_splits_mip_80_10_10.csv` | 80% | 10% | 10% |
+| `seabird_splits_mip_70_15_15.csv` | 70% | 15% | 15% |
+
+## Full Example
+
+```bash
+python Stage9_train_seabird_multifeature.py \
+    --model efficientnetb0 \
+    --feature mel \
+    --splits_csv ./seabird_splits_mip_75_10_15.csv \
+    --dataset_root /Volumes/Evo/seabird16khz_flat \
+    --batch_size 32 \
+    --num_epochs 50 \
+    --learning_rate 0.001 \
+    --seed 42 \
+    --use_pretrained \
+    --output_dir ./results
+```
+
+## CPU-Only Training
+
+When GPU is unavailable or occupied:
+
+```bash
+python Stage9_train_seabird_multifeature.py --force_cpu --use_pretrained
+```
+
+## All Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--model` | `mobilenetv3s` | CNN architecture |
+| `--feature` | `mel` | Feature extraction method |
+| `--seed` | `42` | Random seed for reproducibility |
+| `--batch_size` | `32` | Training batch size |
+| `--num_epochs` | `50` | Maximum training epochs |
+| `--learning_rate` | `0.001` | Initial learning rate |
+| `--sample_rate` | `16000` | Audio sample rate (Hz) |
+| `--n_mels` | `224` | Number of mel bins |
+| `--n_fft` | `2048` | FFT window size |
+| `--num_workers` | `4` | Data loader workers |
+| `--use_pretrained` | `False` | Use ImageNet pretrained weights |
+| `--force_cpu` | `False` | Disable GPU |
+| `--output_dir` | `./results` | Results directory |
+| `--splits_csv` | `None` | Path to splits CSV file |
+| `--dataset_root` | `/Volumes/Evo/seabird16khz_flat` | Audio files directory |
+
+## Training Strategy
+
+### Standard Models (EfficientNetB0, ResNet50, VGG16)
+
+1. **Warmup phase** (5 epochs): Train classifier head with frozen base
+2. **Fine-tuning phase**: Unfreeze top 20% of base layers, reduce LR to 5e-5
+3. **Early stopping**: Patience=7, monitoring validation accuracy
+
+### MobileNetV3S (Optimized Strategy)
+
+MobileNetV3S requires a less conservative training approach:
+
+| Setting | Standard | MobileNetV3S |
+|---------|----------|--------------|
+| Warmup epochs | 5 | 10 |
+| Fine-tuning scope | Top 20% | All layers |
+| Fine-tune LR | 5e-5 | 1e-4 |
+| Weight decay | 1e-4 | 1e-5 |
+| Dropout | 0.5/0.4 | 0.3/0.2 |
+| Hidden units | 256 | 512 |
+| Early stopping patience | 7 | 15 |
+
+## Output
+
+Training produces:
+- Model checkpoints in `--output_dir`
+- Training logs with loss/accuracy curves
+- Final test evaluation metrics
+
+## Benchmark Results
+
+Test accuracy (%) with 75:10:15 split, averaged over seeds 42, 100, 786:
+
+| Model | Mel | STFT | MFCC |
+|-------|-----|------|------|
+| EfficientNetB0 | **93.4 ± 2.6** | 91.0 ± 1.5 | 89.4 ± 1.3 |
+| MobileNetV3S | 90.1 | - | - |
+| ResNet50 | 88.8 ± 2.9 | 91.0 ± 1.1 | 86.0 ± 1.6 |
+| VGG16 | 88.2 ± 0.8 | 86.7 ± 1.8 | 81.9 ± 3.4 |
+
+**Recommendation:** Use EfficientNetB0 + Mel for best accuracy, or MobileNetV3S + Mel for edge deployment.
