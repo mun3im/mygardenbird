@@ -59,15 +59,15 @@ Physics-inspired optimization with temperature-based acceptance.
 
 ## Performance Comparison
 
-Benchmark on 6000-sample dataset (10 classes, 1074 sources) with 3 split ratios:
+Benchmark on 6000-sample dataset (10 classes, 1074 sources):
 
-| Algorithm | Avg Time | 75:10:15 | 80:10:10 | 70:15:15 | Solution Quality |
-|-----------|----------|----------|----------|----------|------------------|
-| **MIP** | **1.1s** | 1.17s | 1.24s | 1.03s | Optimal (objective=0) |
-| GA | 7.5s | 3.72s | 3.04s | 15.59s | Optimal (objective=0) |
-| SA | ~19 min | 19.2 min | 19.6 min | 17.6 min | Optimal (objective=0) |
+| Algorithm | Time | Speed vs SA | Optimal? | Deterministic? |
+|-----------|------|-------------|----------|----------------|
+| **MIP (CBC solver)** | **1.7 s** | **564×** | Proven | Yes |
+| **Genetic Algorithm** | **13.6 s** | **70×** | Achieved | No |
+| **Simulated Annealing** | **952 s (15.9 min)** | **1×** | Achieved | No |
 
-**Key Finding:** MIP is ~7x faster than GA and ~1000x faster than SA while achieving the same optimal result.
+**Key Finding:** MIP is ~564× faster than SA while guaranteeing the same optimal result with deterministic output.
 
 ## Quick Start
 
@@ -148,6 +148,26 @@ xc402013_30210.wav → train  (same source, same split)
 xc402013_33041.wav → train  (same source, same split)
 xc789456_12000.wav → test   (different source, can be in different split)
 ```
+
+## SEAbird Dataset Statistics
+
+The 75:10:15 split distributes 1,074 Xeno-Canto sources across train/val/test:
+
+| Species | Scientific Name | Train | Val | Test | Clips | XC Sources (Train/Val/Test) |
+|---------|-----------------|-------|-----|------|-------|----------------------------|
+| Asian Koel | *Eudynamys scolopaceus* | 450 | 60 | 90 | 600 | 86 / 13 / 32 |
+| Collared Kingfisher | *Todiramphus chloris* | 450 | 60 | 90 | 600 | 73 / 18 / 26 |
+| Common Iora | *Aegithina tiphia* | 450 | 60 | 90 | 600 | 75 / 9 / 21 |
+| Common Myna | *Acridotheres tristis* | 450 | 60 | 90 | 600 | 81 / 10 / 32 |
+| Common Tailorbird | *Orthotomus sutorius* | 450 | 60 | 90 | 600 | 65 / 10 / 21 |
+| Large-tailed Nightjar | *Caprimulgus macrurus* | 450 | 60 | 90 | 600 | 56 / 11 / 16 |
+| Olive-backed Sunbird | *Cinnyris jugularis* | 450 | 60 | 90 | 600 | 68 / 10 / 17 |
+| Spotted Dove | *Spilopelia chinensis* | 450 | 60 | 90 | 600 | 68 / 9 / 18 |
+| White-throated Kingfisher | *Halcyon smyrnensis* | 450 | 60 | 90 | 600 | 81 / 17 / 25 |
+| Zebra Dove | *Geopelia striata* | 450 | 60 | 90 | 600 | 69 / 10 / 27 |
+| **Total** | | **4500** | **600** | **900** | **6000** | **722 / 117 / 235** |
+
+Each species has exactly 600 clips (perfect class balance). The MIP solver achieves objective=0, meaning exact target ratios per class.
 
 ## Using Splits with Training
 
