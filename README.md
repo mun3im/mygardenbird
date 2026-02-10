@@ -164,7 +164,7 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 
 The original MobileNetV3S results (63.5%) showed significant underfitting. An improved training strategy achieved **90.1% accuracy**:
 
-| Change | Original | Improved |
+| Change | Other CNNs | MobileNetV3S |
 |--------|----------|----------|
 | Warmup epochs | 5 | 10 |
 | Fine-tuning scope | Top 20% layers | All layers |
