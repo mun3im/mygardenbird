@@ -162,7 +162,7 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 ### MobileNetV3S Training Improvements
 
 MobileNetV3S requires different hyperparameter settings.
-The original MobileNetV3S results (63.5%) showed significant underfitting. An improved training strategy achieved up to **90.67% accuracy**:
+The original MobileNetV3S results (63.5%) showed significant underfitting. An improved training strategy achieved **90.1% accuracy** on average:
 
 | Change | Other CNNs | MobileNetV3S |
 |--------|----------|----------|
