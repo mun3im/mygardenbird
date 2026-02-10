@@ -145,18 +145,18 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 
 | Model | Feature | Seed 42 | Seed 100 | Seed 786 | Mean | Std |
 |-------|---------|---------|----------|----------|------|-----|
-| EfficientNetB0 | mel | 95.89 | 93.56 | 90.67 | 93.37 | 2.62 |
-| EfficientNetB0 | stft | 92.33 | 91.33 | 89.33 | 91.00 | 1.53 |
-| EfficientNetB0 | mfcc | 90.33 | 90.00 | 87.89 | 89.41 | 1.33 |
-| ResNet50 | mel | 85.89 | 88.89 | 91.67 | 88.81 | 2.89 |
-| ResNet50 | stft | 91.78 | 89.67 | 91.44 | 90.96 | 1.13 |
-| ResNet50 | mfcc | 84.33 | 87.56 | 86.22 | 86.04 | 1.62 |
-| VGG16 | mel | 87.89 | 87.67 | 89.11 | 88.22 | 0.78 |
-| VGG16 | stft | 87.89 | 87.56 | 84.56 | 86.67 | 1.84 |
-| VGG16 | mfcc | 79.56 | 80.33 | 85.78 | 81.89 | 3.39 |
-| MobileNetV3S | mel | 90.33 | 90.67 | 88.89 | 89.96 | 0.95 |
-| MobileNetV3S | stft | 90.22 | 90.89 | 89.33 | 90.15 | 0.78 |
-| MobileNetV3S | mfdd | 82.56 | 82.22 | 84.11 | 82.96 | 1.01 |
+| EfficientNetB0 | Mel | 95.89 | 93.56 | 90.67 | 93.37 | 2.62 |
+| EfficientNetB0 | STFT | 92.33 | 91.33 | 89.33 | 91.00 | 1.53 |
+| EfficientNetB0 | MFCC | 90.33 | 90.00 | 87.89 | 89.41 | 1.33 |
+| ResNet50 | Mel | 85.89 | 88.89 | 91.67 | 88.81 | 2.89 |
+| ResNet50 | STFT | 91.78 | 89.67 | 91.44 | 90.96 | 1.13 |
+| ResNet50 | MFCC | 84.33 | 87.56 | 86.22 | 86.04 | 1.62 |
+| VGG16 | Mel | 87.89 | 87.67 | 89.11 | 88.22 | 0.78 |
+| VGG16 | STFT | 87.89 | 87.56 | 84.56 | 86.67 | 1.84 |
+| VGG16 | MFCC | 79.56 | 80.33 | 85.78 | 81.89 | 3.39 |
+| MobileNetV3S | Mel | 90.33 | 90.67 | 88.89 | 89.96 | 0.95 |
+| MobileNetV3S | STFT | 90.22 | 90.89 | 89.33 | 90.15 | 0.78 |
+| MobileNetV3S | MFCC | 82.56 | 82.22 | 84.11 | 82.96 | 1.01 |
 
 
 *Improved training strategy (see below)
