@@ -93,10 +93,8 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 |-------|-----|------|------|------|
 | **EfficientNetB0** | **93.4 ± 2.6** | 91.0 ± 1.5 | 89.4 ± 1.3 | **93.4%** |
 | ResNet50 | 88.8 ± 2.9 | 91.0 ± 1.1 | 86.0 ± 1.6 | 91.0% |
-| MobileNetV3S* | **90.1** | - | - | **90.1%** |
+| MobileNetV3S | 90.0 ± 0.9 | 90.1 ± 0.8 | 83.0 ± 1.0 | 90.1% |
 | VGG16 | 88.2 ± 0.8 | 86.7 ± 1.8 | 81.9 ± 3.4 | 88.2% |
-
-*MobileNetV3S with improved training strategy (extended warmup, full fine-tuning, reduced regularization)
 
 ![CNN vs Feature](cnn-vs-feature.svg)
 
