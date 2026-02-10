@@ -154,7 +154,10 @@ Benchmark results using `Stage9_train_seabird_multifeature.py` with 4 CNN archit
 | VGG16 | mel | 87.89 | 87.67 | 89.11 | 88.22 | 0.78 |
 | VGG16 | stft | 87.89 | 87.56 | 84.56 | 86.67 | 1.84 |
 | VGG16 | mfcc | 79.56 | 80.33 | 85.78 | 81.89 | 3.39 |
-| MobileNetV3S* | mel | **90.11** | - | - | **90.11** | - |
+| MobileNetV3S | mel | 90.33 | 90.67 | 88.89 | 89.96 | 0.95 |
+| MobileNetV3S | stft | 90.22 | 90.89 | 89.33 | 90.15 | 0.78 |
+| MobileNetV3S | mfdd | 82.56 | 82.22 | 84.11 | 82.96 | 1.01 |
+
 
 *Improved training strategy (see below)
 
