@@ -28,6 +28,8 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 from tqdm import tqdm
 
+from config import EXTRACTED_SEGS, SPLITS_DIR
+
 try:
     import matplotlib.pyplot as plt
     import matplotlib
@@ -1086,9 +1088,9 @@ Genetic Algorithm:
         """
     )
 
-    parser.add_argument('--dataset', type=str, default='/Volumes/Evo/seabird16khz_flat',
+    parser.add_argument('--dataset', type=str, default=str(EXTRACTED_SEGS),
                        help='Path to dataset directory')
-    parser.add_argument('--output', type=str, default='./splits_ga',
+    parser.add_argument('--output', type=str, default=str(SPLITS_DIR / 'seabird_splits_ga.csv'),
                        help='Output directory for split files')
     parser.add_argument('--train_ratio', type=float, default=0.75,
                        help='Target train ratio (default: 0.75)')

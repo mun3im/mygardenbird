@@ -7,7 +7,7 @@ import tempfile
 
 import requests
 
-from species import SPECIES, VALID_QUALITIES, folder_name, resolve_species
+from config import SPECIES, VALID_QUALITIES, folder_name, resolve_species, PER_SPECIES_FLACS
 
 
 def parse_ids(raw_ids):
@@ -34,14 +34,70 @@ def load_ids_from_file(filepath):
     return ids
 
 
+MIN_DURATION_S = 3.0   # clips shorter than this are skipped at download time
+
+
+def _probe_audio(path):
+    """Return (sample_rate, duration_s) of an audio file via ffprobe.
+
+    Either value is None if it cannot be determined.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=sample_rate,duration",
+                "-of", "csv=p=0",
+                path,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        parts = result.stdout.strip().split(",")
+        sr  = int(parts[0])   if len(parts) > 0 and parts[0] else None
+        dur = float(parts[1]) if len(parts) > 1 and parts[1] else None
+        return sr, dur
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, IndexError):
+        return None, None
+
+
 def _mp3_to_mono_flac(mp3_path, flac_path):
-    """Convert an MP3 file to mono FLAC using ffmpeg. Returns True on success."""
+    """Convert an MP3 file to mono FLAC using ffmpeg.
+
+    Pre-conversion:  recordings shorter than MIN_DURATION_S are skipped.
+    Post-conversion: asserts the output FLAC preserves the original sample rate.
+                     Resampling is intentionally deferred to Stage 6.
+
+    Returns True if the file was converted and passes all checks.
+    Returns False (and deletes any partial output) otherwise.
+    """
+    src_sr, src_dur = _probe_audio(mp3_path)
+
+    # Skip recordings that are too short
+    if src_dur is not None and src_dur < MIN_DURATION_S:
+        print(f"  Skipping XC{os.path.basename(mp3_path)}: {src_dur:.2f}s < {MIN_DURATION_S}s")
+        return False
+
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", mp3_path, "-ac", "1", "-c:a", "flac", flac_path],
+            ["ffmpeg", "-y", "-i", mp3_path,
+             "-ac", "1",      # mono — channel change only, no -ar flag
+             "-c:a", "flac",
+             flac_path],
             capture_output=True, timeout=120,
         )
-        return os.path.isfile(flac_path) and os.path.getsize(flac_path) > 0
+        if not (os.path.isfile(flac_path) and os.path.getsize(flac_path) > 0):
+            return False
+
+        # Assert sample rate was preserved
+        dst_sr, _ = _probe_audio(flac_path)
+        if src_sr is not None and dst_sr is not None and src_sr != dst_sr:
+            print(f"  ERROR: sample rate changed {src_sr} Hz -> {dst_sr} Hz in {flac_path}")
+            print(f"  Deleting corrupted output.")
+            os.unlink(flac_path)
+            return False
+
+        return True
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"  ffmpeg error: {e}")
         return False
@@ -108,8 +164,8 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default=".",
-        help="Base output directory. Default: current directory.",
+        default=str(PER_SPECIES_FLACS),
+        help=f"Base output directory. Default: {PER_SPECIES_FLACS}",
     )
     parser.add_argument(
         "--dry-run",

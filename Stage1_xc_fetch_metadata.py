@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 import requests
 
-from species import SPECIES, VALID_QUALITIES, resolve_species
+from config import SPECIES, VALID_QUALITIES, resolve_species, PER_SPECIES_CSV
 
 # ── constants ────────────────────────────────────────────────────────────────
 
@@ -371,8 +371,8 @@ def main():
         help='Species to fetch (common name, scientific name, or eBird code). Default: all.',
     )
     parser.add_argument(
-        "--output-dir", default="xc_metadata_v3",
-        help="Directory for per-species CSV files. Default: xc_metadata_v3/.",
+        "--output-dir", default=str(PER_SPECIES_CSV),
+        help=f"Directory for per-species CSV files. Default: {PER_SPECIES_CSV}",
     )
     parser.add_argument(
         "--rank-only", action="store_true",

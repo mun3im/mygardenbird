@@ -32,6 +32,8 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 import time
 
+from config import EXTRACTED_SEGS, SPLITS_DIR
+
 try:
     from pulp import (
         LpProblem, LpMinimize, LpVariable, lpSum, LpStatus,
@@ -573,9 +575,9 @@ Examples:
         """
     )
 
-    parser.add_argument('--dataset', type=str, required=True,
-                       help='Path to flat dataset directory')
-    parser.add_argument('--output', type=str, default=None,
+    parser.add_argument('--dataset', type=str, default=str(EXTRACTED_SEGS),
+                       help=f'Path to dataset directory. Default: {EXTRACTED_SEGS}')
+    parser.add_argument('--output', type=str, default=str(SPLITS_DIR / 'seabird_splits_mip.csv'),
                        help='Output CSV path (default: seabird_splits.csv next to dataset)')
     parser.add_argument('--train_ratio', type=float, default=0.75,
                        help='Target train ratio (default: 0.75)')
@@ -602,9 +604,6 @@ Examples:
               f"({args.train_ratio} + {args.val_ratio} + {args.test_ratio})")
         return 1
 
-    # Default output path: seabird_splits.csv next to dataset
-    if args.output is None:
-        args.output = str(Path(args.dataset).parent / 'seabird_splits.csv')
 
     if verbose:
         print("\n" + "=" * 80)
