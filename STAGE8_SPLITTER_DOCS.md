@@ -192,9 +192,6 @@ python Stage9_train_seabird_multifeature.py \
 
 ## Justification for the 75:10:15 Split Ratio
 
-
-> We adopt a 75:10:15 train/validation/test split with source-level separation enforced by mixed integer programming. The larger test partition (15%) provides approximately 90 samples per class, yielding more reliable per-class evaluation metrics than a conventional 80:10:10 split (~60 per class). Joseph (2022) demonstrates that the optimal splitting ratio is not fixed but depends on effective model complexity; for transfer-learned CNNs with strong regularisation, the marginal value of additional training data is low. We verified empirically that reducing the training proportion from 80% to 75% produced no statistically significant change in test accuracy across 9 paired runs (MobileNetV3S, 3 features × 3 seeds; p > 0.05), while reducing seed-to-seed variance by up to 3.5×.
-
 ### Rationale
 
 The 75:10:15 train/validation/test split was selected over the more conventional 80:10:10 ratio to increase test set reliability for a constrained dataset of 6,000 samples across 10 classes. With 15% allocated to testing, each class receives ~90 test samples compared to ~60 under an 80:10:10 split — a 50% increase in per-class evaluation data that yields more reliable F1 and accuracy estimates.
@@ -218,8 +215,26 @@ Key findings:
 - **Substantially lower seed-to-seed variance**: within-feature standard deviation was 1.5–3.5× lower under 75:10:15 (e.g., Mel std dropped from 3.22% to 0.93%).
 - **Better per-class reliability**: difficult classes (Asian Koel, Zebra Dove) showed F1 improvements of +0.06–0.09 with the larger test set.
 
-----------------------------------------------
+### References
 
+1. **Joseph, V. R. (2022).** Optimal ratio for data splitting. *Statistical Analysis and Data Mining: The ASA Data Science Journal*, 15(4), 531–538. https://doi.org/10.1002/sam.11583
+   — Derives a closed-form optimal split ratio dependent on model complexity; shows that 80:10:10 is not universally optimal.
+
+2. **Ramezan, C. A., Warner, T. A., & Maxwell, A. E. (2019).** Evaluation of sampling and cross-validation tuning strategies for regional-scale machine learning classification. *Remote Sensing*, 11(2), 185. https://doi.org/10.3390/rs11020185
+   — Demonstrates that single holdout splits are sensitive to random partitioning and that larger evaluation sets reduce variance in performance estimates.
+
+3. **Oala, L., et al. (2024).** Trade-off between training and testing ratio in machine learning for medical image processing. *PMC*. https://pmc.ncbi.nlm.nih.gov/articles/PMC11419616/
+   — Studies how split ratio affects evaluation reliability in medical imaging; analogous small-dataset transfer learning context.
+
+4. **Vabalas, A., Gowen, E., Poliakoff, E., & Casson, A. J. (2019).** Machine learning algorithm validation with a limited sample size. *PLoS ONE*, 14(11), e0224365. https://doi.org/10.1371/journal.pone.0224365
+   — Discusses sample size requirements for reliable ML evaluation; supports larger test proportions when total data is limited.
+
+5. **Stowell, D., et al. (2022).** Computational bioacoustics with deep learning: a review and roadmap. *PeerJ*, 10, e13152. https://doi.org/10.7717/peerj.13152
+   — Reviews data splitting practices in bioacoustics; emphasises source-level separation to prevent data leakage.
+
+### Suggested Citation Text
+
+> We adopt a 75:10:15 train/validation/test split with source-level separation enforced by mixed integer programming (Section X). The larger test partition (15%) provides approximately 90 samples per class, yielding more reliable per-class evaluation metrics than a conventional 80:10:10 split (~60 per class). Joseph (2022) demonstrates that the optimal splitting ratio is not fixed but depends on effective model complexity; for transfer-learned CNNs with strong regularisation, the marginal value of additional training data is low. We verified empirically that reducing the training proportion from 80% to 75% produced no statistically significant change in test accuracy across 9 paired runs (MobileNetV3S, 3 features × 3 seeds; p > 0.05), while reducing seed-to-seed variance by up to 3.5×.
 
 ## Tips
 
@@ -248,23 +263,3 @@ If splits are impossible with exact ratios:
 
 - Reduce population size (GA) or iterations (SA)
 - Consider using MIP instead for guaranteed fast results
-
---------
-
-### References
-
-1. **Joseph, V. R. (2022).** Optimal ratio for data splitting. *Statistical Analysis and Data Mining: The ASA Data Science Journal*, 15(4), 531–538. https://doi.org/10.1002/sam.11583
-   — Derives a closed-form optimal split ratio dependent on model complexity; shows that 80:10:10 is not universally optimal.
-
-2. **Ramezan, C. A., Warner, T. A., & Maxwell, A. E. (2019).** Evaluation of sampling and cross-validation tuning strategies for regional-scale machine learning classification. *Remote Sensing*, 11(2), 185. https://doi.org/10.3390/rs11020185
-   — Demonstrates that single holdout splits are sensitive to random partitioning and that larger evaluation sets reduce variance in performance estimates.
-
-3. **Oala, L., et al. (2024).** Trade-off between training and testing ratio in machine learning for medical image processing. *PMC*. https://pmc.ncbi.nlm.nih.gov/articles/PMC11419616/
-   — Studies how split ratio affects evaluation reliability in medical imaging; analogous small-dataset transfer learning context.
-
-4. **Vabalas, A., Gowen, E., Poliakoff, E., & Casson, A. J. (2019).** Machine learning algorithm validation with a limited sample size. *PLoS ONE*, 14(11), e0224365. https://doi.org/10.1371/journal.pone.0224365
-   — Discusses sample size requirements for reliable ML evaluation; supports larger test proportions when total data is limited.
-
-5. **Stowell, D., et al. (2022).** Computational bioacoustics with deep learning: a review and roadmap. *PeerJ*, 10, e13152. https://doi.org/10.7717/peerj.13152
-   — Reviews data splitting practices in bioacoustics; emphasises source-level separation to prevent data leakage.
-

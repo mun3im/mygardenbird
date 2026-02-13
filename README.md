@@ -21,14 +21,14 @@ End-to-end pipeline from Xeno-Canto downloads to optimized train/val/test splits
 | 1     | `Stage1_xc_fetch_metadata.py`              | Fetch recording metadata              |
 | 2     | `Stage2_xc_dload_all_from_species_list.py` | Download recordings                   |
 | 3     | `Stage3_xc_dload_delta_by_id.py`           | Download specific IDs                 |
-| 4     | `Stage4_eda_downloads.py`                  | Exploratory data analysis             |
+| 4     | `Stage4_audit_downloads.py`                | Audit downloaded FLACs against metadata |
 | 5     | `Stage5_find_segments_interactive.py`      | Interactive annotation GUI            |
 | 6     | `Stage6_extract_annotated_segments.py`     | Extract WAV segments                  |
-| 7     | `Stage7_quality_control_selection.py`      | Quality control                       |
+| 7     | `Stage7_clip_qc_manifest.py`               | QC and generate dataset manifest CSV  |
 | 8a    | `Stage8a_splitter_mip.py`                  | **MIP-based splitting (recommended)** |
 | 8b    | `Stage8b_splitter_genetic_algorithm.py`    | GA-based splitting                    |
 | 8c    | `Stage8c_splitter_simulated_annealing.py`  | SA-based splitting                    |
-| 9     | `Stage9_train_seabird_multifeature.py`       | Train 4 CNN models                    |
+| 9     | `Stage9_train_seabird_multifeature.py`     | Train 4 CNN models                    |
 
 ## MIP Splitter (Stage 8a)
 
@@ -188,6 +188,37 @@ python Stage9_train_seabird_multifeature.py \
 ```
 
 For audio-focused CNN training, see also [mun3im/mynanet](https://github.com/mun3im/mynanet).
+
+## Setup
+
+### 1. Configure paths
+
+Edit the top of `config.py` to match your environment:
+
+```python
+PROJECT_ROOT = "/Volumes/Evo"   # change to your mount point or local path
+DATASET_NAME = "SEABIRD"        # top-level folder created under PROJECT_ROOT
+```
+
+All stages derive their input/output paths from these two constants.
+
+### 2. Place `target_species.csv` in the dataset directory
+
+Before running any stage, copy `target_species.csv` into your dataset root:
+
+```
+<PROJECT_ROOT>/<DATASET_NAME>/target_species.csv
+```
+
+For example, with the defaults above:
+
+```
+/Volumes/Evo/SEABIRD/target_species.csv
+```
+
+The CSV controls which species are active in the pipeline. Set the `active`
+column to `yes` for the species you want to include and `no` to exclude them.
+The file must be in the dataset directory, not alongside the scripts.
 
 ## Installation
 
