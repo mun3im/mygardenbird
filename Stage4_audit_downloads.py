@@ -5,7 +5,7 @@ import subprocess
 import sys
 from collections import defaultdict
 
-from species import ACTIVE_SPECIES, VALID_QUALITIES, folder_name
+from config import ACTIVE_SPECIES, VALID_QUALITIES, folder_name, PER_SPECIES_FLACS, PER_SPECIES_CSV
 
 # Derived lookups
 _SCIENTIFIC_TO_SPECIES = {
@@ -134,13 +134,14 @@ def main():
     )
     parser.add_argument(
         "input_dir",
-        help="Base directory with {English name}/{quality}/ structure from Stage 2.",
+        nargs="?",
+        default=str(PER_SPECIES_FLACS),
+        help=f"Base directory with {{English name}}/{{quality}}/ structure from Stage 2. Default: {PER_SPECIES_FLACS}",
     )
     parser.add_argument(
         "--metadata-dir",
-        default=None,
-        help="Path to active_species/ CSV directory for completeness check. "
-             "Default: <script_dir>/active_species.",
+        default=str(PER_SPECIES_CSV),
+        help=f"Path to per-species CSV directory for completeness check. Default: {PER_SPECIES_CSV}",
     )
     parser.add_argument(
         "--output",
@@ -166,8 +167,6 @@ def main():
         sys.exit(1)
 
     metadata_dir = args.metadata_dir
-    if metadata_dir is None:
-        metadata_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active_species")
 
     output_path = args.output
     if output_path is None:

@@ -87,6 +87,8 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     print("Warning: psutil not available. Install with 'pip install psutil' for detailed system info.")
 
+from config import EXTRACTED_SEGS, SPLITS_DIR
+
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, applications, optimizers, losses, metrics
@@ -666,13 +668,13 @@ def main():
     parser.add_argument('--model', default='mobilenetv3s', choices=['mobilenetv3s', 'resnet50', 'vgg16', 'efficientnetb0'])
     parser.add_argument('--feature', default='mel', choices=['mel', 'stft', 'mfcc'],
                        help='Feature type: mel (spectrogram), stft, or mfcc (with deltas)')
-    parser.add_argument('--train_dir', default='/Volumes/Evo/seabird16k/train')
-    parser.add_argument('--val_dir', default='/Volumes/Evo/seabird16k/val')
-    parser.add_argument('--test_dir', default='/Volumes/Evo/seabird16k/test')
+    parser.add_argument('--train_dir', default=str(EXTRACTED_SEGS / 'train'))
+    parser.add_argument('--val_dir', default=str(EXTRACTED_SEGS / 'val'))
+    parser.add_argument('--test_dir', default=str(EXTRACTED_SEGS / 'test'))
     parser.add_argument('--splits_csv', default=None, type=str,
                        help='Path to splits CSV file (if provided, uses CSV-based splits instead of directories). Can be relative to current directory.')
-    parser.add_argument('--dataset_root', default='/Volumes/Evo/seabird16khz_flat', type=str,
-                       help='Root directory containing all audio files (used with --splits_csv)')
+    parser.add_argument('--dataset_root', default=str(EXTRACTED_SEGS), type=str,
+                       help=f'Root directory containing all audio files (used with --splits_csv). Default: {EXTRACTED_SEGS}')
     parser.add_argument('--sample_rate', type=int, default=16000)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_epochs', type=int, default=50)

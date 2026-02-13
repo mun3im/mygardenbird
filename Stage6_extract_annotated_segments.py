@@ -24,6 +24,8 @@ import soundfile as sf
 import numpy as np
 from tqdm import tqdm
 
+from config import PER_SPECIES_FLACS, EXTRACTED_SEGS
+
 
 def find_annotation_files(input_dir, recursive=True):
     """
@@ -229,12 +231,14 @@ Examples:
 
     parser.add_argument(
         "input_dir",
-        help="Input directory containing FLAC files and .txt annotation files."
+        nargs="?",
+        default=str(PER_SPECIES_FLACS),
+        help=f"Input directory containing FLAC files and .txt annotation files. Default: {PER_SPECIES_FLACS}",
     )
     parser.add_argument(
         "--output-dir",
-        default="./extracted_segments",
-        help="Output directory for extracted WAV segments. Default: ./extracted_segments"
+        default=str(EXTRACTED_SEGS),
+        help=f"Output directory for extracted WAV segments. Default: {EXTRACTED_SEGS}",
     )
     parser.add_argument(
         "--sample-rate",
