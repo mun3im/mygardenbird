@@ -77,14 +77,21 @@ Click **Play** to hear the full audio. A red vertical line tracks playback progr
 Click **Save**. The tool writes a tab-separated `.txt` file alongside the audio file with the same base name:
 
 ```
-0.500	3.500	song	0
-5.000	8.000	song	1
-12.300	15.300	song	2
+0.500000	3.500000	song
+5.000000	8.000000	call
+12.300000	15.300000	song
 ```
 
-Columns: `start_time	end_time	label	segment_index`
+Columns: `start_time	end_time	type`
 
-Up to 10 segments are saved. The window closes after saving. Final SNR metrics are printed to the terminal.
+- Times are written to **6 decimal places**.
+- The `type` field is read from the Xeno-canto metadata CSV for that recording
+  (`song`, `call`, or `other`). Falls back to `birdsong` if the recording is
+  not found in the metadata.
+- **No sequence index is stored** — the WAV filename suffix is the onset in
+  milliseconds, which is always recoverable from `start_time`.
+
+Up to 10 segments are saved (hard limit). The window closes after saving. Final SNR metrics are printed to the terminal.
 
 ## Quitting without saving
 
@@ -96,9 +103,9 @@ Each line in the output `.txt` file contains:
 
 | Column | Description |
 |--------|-------------|
-| 1 | Start time in seconds (3 decimal places) |
-| 2 | End time in seconds (3 decimal places) |
-| 3 | Label (always `song`) |
-| 4 | Zero-based segment index |
+| 1 | Start time in seconds (6 decimal places) |
+| 2 | End time in seconds (6 decimal places) |
+| 3 | Vocalisation type from XC metadata: `song`, `call`, `other`, or `birdsong` |
 
-Fields are tab-separated. All segments are exactly 3.000 seconds long.
+Fields are tab-separated. All segments are exactly 3.000000 seconds long.
+No sequence index is stored; the WAV clip suffix is derived from column 1 (onset ms).

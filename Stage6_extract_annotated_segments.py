@@ -80,7 +80,9 @@ def parse_annotation_file(annotation_path):
                 start_time = float(parts[0])
                 end_time = float(parts[1])
                 label = parts[2] if len(parts) > 2 else "unknown"
-                index = parts[3] if len(parts) > 3 else str(line_num - 1)
+                # Always derive the filename suffix from onset_ms so output
+                # filenames consistently follow xc{id}_{onset_ms}.wav.
+                index = str(int(round(start_time * 1000)))
 
                 # Validate segment duration (should be close to 3 seconds)
                 duration = end_time - start_time
@@ -158,6 +160,8 @@ def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
 
     # Parse annotations
     segments = parse_annotation_file(annotation_path)
+    if len(segments) > 10:
+        segments = segments[:10]   # hard limit: max 10 clips per source file
     stats['total_segments'] = len(segments)
 
     if not segments:
@@ -327,13 +331,17 @@ Examples:
         species = get_species_from_path(flac_path, input_dir)
         for key, value in stats.items():
             species_stats[species][key] += value
+        species_stats[species]['source_files'] += 1
 
     # Print summary
     print()
     print("="*80)
     print("EXTRACTION SUMMARY")
     print("="*80)
-    print(f"Total annotation files processed: {len(annotation_pairs)}")
+    total_src = len(annotation_pairs)
+    overall_avg = total_stats['total_segments'] / total_src if total_src > 0 else 0.0
+    print(f"Total source files processed: {total_src}")
+    print(f"Average clips per source file: {overall_avg:.1f}")
     print(f"Total segments found: {total_stats['total_segments']}")
     print(f"Successfully extracted: {total_stats['extracted']}")
     print(f"Skipped (already exist): {total_stats['skipped']}")
@@ -341,11 +349,13 @@ Examples:
     print()
 
     print("Per-species breakdown:")
-    print(f"{'Species':<30} {'Total':>8} {'Extracted':>10} {'Skipped':>8} {'Errors':>8}")
-    print("-"*80)
+    print(f"{'Species':<30} {'SrcFiles':>9} {'Avg Clips/Src':>14} {'Total':>8} {'Extracted':>10} {'Skipped':>8} {'Errors':>8}")
+    print("-"*93)
     for species in sorted(species_stats.keys()):
         s = species_stats[species]
-        print(f"{species:<30} {s['total_segments']:>8} {s['extracted']:>10} {s['skipped']:>8} {s['errors']:>8}")
+        src = s['source_files']
+        avg = s['total_segments'] / src if src > 0 else 0.0
+        print(f"{species:<30} {src:>9} {avg:>14.1f} {s['total_segments']:>8} {s['extracted']:>10} {s['skipped']:>8} {s['errors']:>8}")
     print()
 
     print(f"Output directory: {output_dir}")

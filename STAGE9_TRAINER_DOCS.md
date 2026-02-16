@@ -55,7 +55,8 @@ python Stage9_train_seabird_multifeature.py --seed 786 --use_pretrained
 
 ## Using CSV-Based Splits (Recommended)
 
-CSV splits ensure no data leakage between train/val/test sets by keeping segments from the same source recording together.
+CSV splits ensure no data leakage between train/val/test sets by keeping segments
+from the same source recording together.
 
 ```bash
 python Stage9_train_seabird_multifeature.py \
@@ -63,6 +64,10 @@ python Stage9_train_seabird_multifeature.py \
     --dataset_root /path/to/audio/files \
     --use_pretrained
 ```
+
+Splits CSVs use `file_id` as the key column (e.g. `XC1002657_2860`). Stage 9
+derives the WAV filename automatically (`xc1002657_2860.wav`) — no change is
+needed in how you invoke the script.
 
 ### Available Pre-generated Splits
 

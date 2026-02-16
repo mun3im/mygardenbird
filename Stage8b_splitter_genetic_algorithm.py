@@ -655,7 +655,12 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
                       objective: float = 0,
                       seed: int = 42,
                       verbose: bool = True):
-    """Write a CSV with columns: filename,split."""
+    """Write a CSV with columns: file_id,split.
+
+    file_id is the normalised clip primary key: XC{source_id}_{clip_index}
+    (matches the file_id column in clips.csv produced by Stage 7).
+    wav_filename is derivable as: xc{source_id}_{clip_index}.wav
+    """
     if verbose:
         print(f"📄 Writing splits CSV: {output_path}")
 
@@ -669,13 +674,15 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
         for source in sorted(sources.keys()):
             split = assignment[class_name][source]
             for filename in sorted(sources[source]):
-                rows.append((filename, split))
+                stem = Path(filename).stem          # e.g. xc1002657_2860
+                file_id = "XC" + stem[2:] if stem.lower().startswith("xc") else stem
+                rows.append((file_id, split))
 
     with open(output_path, 'w') as f:
         f.write(f"# split_ratio={train_pct}:{val_pct}:{test_pct} seed={seed} objective={objective:.0f} solver=genetic_algorithm\n")
-        f.write("filename,split\n")
-        for filename, split in rows:
-            f.write(f"{filename},{split}\n")
+        f.write("file_id,split\n")
+        for file_id, split in rows:
+            f.write(f"{file_id},{split}\n")
 
     if verbose:
         counts = {'train': 0, 'val': 0, 'test': 0}
