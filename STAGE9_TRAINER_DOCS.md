@@ -152,6 +152,8 @@ Training produces:
 
 ## Benchmark Results
 
+> **Note:** Results below are from the 10-class / 6,000-clip dataset. Re-training on the full 12-class / 7,200-clip dataset is pending.
+
 Test accuracy (%) with 75:10:15 split, averaged over seeds 42, 100, 786:
 
 | Model | Mel | STFT | MFCC |

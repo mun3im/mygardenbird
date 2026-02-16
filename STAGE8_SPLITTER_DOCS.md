@@ -59,7 +59,7 @@ Physics-inspired optimization with temperature-based acceptance.
 
 ## Performance Comparison
 
-Benchmark on 6000-sample dataset (10 classes, 1074 sources):
+Benchmark on 7200-sample dataset (12 classes, 1325 sources):
 
 | Algorithm | Time | Speed vs SA | Optimal? | Deterministic? |
 |-----------|------|-------------|----------|----------------|
@@ -123,7 +123,7 @@ XC1004325_1203,val
 
 ## Pre-generated Splits
 
-Ready-to-use splits for 6000-sample SEAbird dataset (seed=42, all objective=0):
+Ready-to-use splits for 7200-sample SEAbird dataset (seed=42, all objective=0):
 
 | File | Algorithm | Train | Val | Test |
 |------|-----------|-------|-----|------|
@@ -155,21 +155,23 @@ xc789456_12000.wav → test   (different source, can be in different split)
 
 ## SEAbird Dataset Statistics
 
-The 75:10:15 split distributes 1,074 Xeno-Canto sources across train/val/test:
+The 75:10:15 split distributes 1,325 Xeno-Canto sources across train/val/test:
 
 | Species | Scientific Name | Train | Val | Test | Clips | XC Sources (Train/Val/Test) |
 |---------|-----------------|-------|-----|------|-------|----------------------------|
-| Asian Koel | *Eudynamys scolopaceus* | 450 | 60 | 90 | 600 | 86 / 13 / 32 |
-| Collared Kingfisher | *Todiramphus chloris* | 450 | 60 | 90 | 600 | 73 / 18 / 26 |
-| Common Iora | *Aegithina tiphia* | 450 | 60 | 90 | 600 | 75 / 9 / 21 |
-| Common Myna | *Acridotheres tristis* | 450 | 60 | 90 | 600 | 81 / 10 / 32 |
-| Common Tailorbird | *Orthotomus sutorius* | 450 | 60 | 90 | 600 | 65 / 10 / 21 |
-| Large-tailed Nightjar | *Caprimulgus macrurus* | 450 | 60 | 90 | 600 | 56 / 11 / 16 |
-| Olive-backed Sunbird | *Cinnyris jugularis* | 450 | 60 | 90 | 600 | 68 / 10 / 17 |
-| Spotted Dove | *Spilopelia chinensis* | 450 | 60 | 90 | 600 | 68 / 9 / 18 |
-| White-throated Kingfisher | *Halcyon smyrnensis* | 450 | 60 | 90 | 600 | 81 / 17 / 25 |
-| Zebra Dove | *Geopelia striata* | 450 | 60 | 90 | 600 | 69 / 10 / 27 |
-| **Total** | | **4500** | **600** | **900** | **6000** | **722 / 117 / 235** |
+| Asian Koel | *Eudynamys scolopaceus* | 450 | 60 | 90 | 600 | 85 / 15 / 32 |
+| Collared Kingfisher | *Todiramphus chloris* | 450 | 60 | 90 | 600 | 76 / 17 / 24 |
+| Common Iora | *Aegithina tiphia* | 450 | 60 | 90 | 600 | 69 / 10 / 26 |
+| Common Myna | *Acridotheres tristis* | 450 | 60 | 90 | 600 | 78 / 17 / 28 |
+| Common Tailorbird | *Orthotomus sutorius* | 450 | 60 | 90 | 600 | 67 / 10 / 19 |
+| Coppersmith Barbet | *Psilopogon haemacephalus* | 450 | 60 | 90 | 600 | 88 / 12 / 20 |
+| Large-tailed Nightjar | *Caprimulgus macrurus* | 450 | 60 | 90 | 600 | 66 / 9 / 22 |
+| Olive-backed Sunbird | *Cinnyris jugularis* | 450 | 60 | 90 | 600 | 68 / 8 / 20 |
+| Spotted Dove | *Spilopelia chinensis* | 450 | 60 | 90 | 600 | 66 / 10 / 19 |
+| White-breasted Waterhen | *Amaurornis phoenicurus* | 450 | 60 | 90 | 600 | 80 / 13 / 22 |
+| White-throated Kingfisher | *Halcyon smyrnensis* | 450 | 60 | 90 | 600 | 78 / 12 / 33 |
+| Zebra Dove | *Geopelia striata* | 450 | 60 | 90 | 600 | 71 / 9 / 26 |
+| **Total** | | **5400** | **720** | **1080** | **7200** | **892 / 142 / 291** |
 
 Each species has exactly 600 clips (perfect class balance). The MIP solver achieves objective=0, meaning exact target ratios per class.
 
