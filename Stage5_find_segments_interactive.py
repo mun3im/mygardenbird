@@ -1,10 +1,13 @@
 import argparse
+import json
 import os
 import time
 import tkinter as tk
-from config import PER_SPECIES_FLACS
+from config import PER_SPECIES_FLACS, PER_SPECIES_CSV, normalise_type
 from tkinter import filedialog
 import warnings
+
+import pandas as pd
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -34,6 +37,48 @@ MAX_OVERLAP_FRACTION   = 0.10   # 10 %
 MAX_OVERLAP_S          = SEGMENT_DURATION * MAX_OVERLAP_FRACTION   # 0.3 s
 
 DEFAULT_SOUND_DIR = str(PER_SPECIES_FLACS)
+
+
+# ── XC metadata type lookup ────────────────────────────────────────────────────
+
+def _build_xc_type_map():
+    """
+    Load all per-species CSVs once and return a dict mapping int XC id → normalised type.
+    Falls back gracefully if the CSV directory is missing or a CSV is malformed.
+    """
+    xc_map = {}
+    csv_dir = PER_SPECIES_CSV
+    if not csv_dir.exists():
+        return xc_map
+    for csv_file in csv_dir.glob("*.csv"):
+        try:
+            df = pd.read_csv(csv_file, usecols=["id", "type"])
+            for _, row in df.iterrows():
+                try:
+                    xc_map[int(row["id"])] = normalise_type(str(row["type"]) if pd.notna(row["type"]) else "")
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            pass
+    return xc_map
+
+_XC_TYPE_MAP = _build_xc_type_map()
+
+
+def lookup_xc_type(audio_path):
+    """
+    Return the normalised XC 'type' (song / call / other) for the recording,
+    or 'birdsong' if the id cannot be resolved.
+    Expects filename stem of the form xc{id}.flac / xc{id}.wav.
+    """
+    stem = os.path.splitext(os.path.basename(audio_path))[0]  # e.g. "xc161194"
+    if stem.startswith("xc"):
+        try:
+            xc_id = int(stem[2:])
+            return _XC_TYPE_MAP.get(xc_id, "birdsong")
+        except ValueError:
+            pass
+    return "birdsong"
 
 
 # ── SNR ───────────────────────────────────────────────────────────────────────
@@ -480,7 +525,7 @@ def interactive_segment_detector(audio_path):
             new_start = max(left_limit, min(new_start, right_limit))
             new_end   = new_start + SEGMENT_DURATION
             current_segments[idx] = (new_start, new_end)
-            print(f"Moved segment {idx} to {new_start:.3f}s – {new_end:.3f}s")
+            print(f"Moved segment {idx} to {new_start:.6f}s – {new_end:.6f}s")
             update_segments()
 
         drag_state.update(idx=None, start_x=None, original_start=None, axis=None)
@@ -554,9 +599,10 @@ def interactive_segment_detector(audio_path):
     def save_segments(event):
         txt = annotation_path_for(audio_path)
         final_snr = calculate_enhanced_snr(y_filtered, sr, current_segments)
+        xc_type = lookup_xc_type(audio_path)
         with open(txt, 'w') as f:
-            for i, (start, end) in enumerate(current_segments[:MAX_SEGMENTS]):
-                f.write(f"{start:.3f}\t{end:.3f}\tsong\t{i}\n")
+            for start, end in current_segments[:MAX_SEGMENTS]:
+                f.write(f"{start:.6f}\t{end:.6f}\t{xc_type}\n")
         print(f"Saved {len(current_segments)} segment(s) to {txt}")
         print(f"Avg SNR: {final_snr['average_snr']:.2f} dB  "
               f"Peak SNR: {final_snr['peak_snr']:.2f} dB")
@@ -587,10 +633,34 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
+    _STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               ".stage5_state.json")
+
+    def _load_last_dir():
+        try:
+            with open(_STATE_FILE) as _f:
+                return json.load(_f).get("last_dir", "")
+        except (FileNotFoundError, ValueError):
+            return ""
+
+    def _save_last_dir(path):
+        try:
+            with open(_STATE_FILE, "w") as _f:
+                json.dump({"last_dir": path}, _f)
+        except OSError:
+            pass
+
     sound_dir = os.path.abspath(args.sound_dir)
-    initial_dir = sound_dir if os.path.isdir(sound_dir) else (
-        os.path.dirname(sound_dir) if os.path.isdir(os.path.dirname(sound_dir))
-        else os.getcwd())
+    last_dir  = _load_last_dir()
+
+    if last_dir and os.path.isdir(last_dir):
+        initial_dir = last_dir
+    elif os.path.isdir(sound_dir):
+        initial_dir = sound_dir
+    elif os.path.isdir(os.path.dirname(sound_dir)):
+        initial_dir = os.path.dirname(sound_dir)
+    else:
+        initial_dir = os.getcwd()
 
     root = tk.Tk()
     root.withdraw()
@@ -609,6 +679,9 @@ if __name__ == "__main__":
         ],
     )
     root.destroy()
+
+    if audio_file:
+        _save_last_dir(os.path.dirname(os.path.abspath(audio_file)))
 
     if audio_file:
         print(f"Processing: {audio_file}")

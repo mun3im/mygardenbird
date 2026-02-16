@@ -221,31 +221,37 @@ def audio_to_mfcc_deltas(audio, label, augment=False):
 
 def load_splits_from_csv(csv_path: str, split: str = 'train') -> List[str]:
     """
-    Load file paths for a specific split from CSV file.
+    Load WAV filenames for a specific split from a Stage 8 splits CSV.
 
     Args:
-        csv_path: Path to seabird_splits.csv
+        csv_path: Path to a seabird_splits_*.csv file
         split: 'train', 'val', or 'test'
 
     Returns:
-        List of filenames for the specified split
+        List of WAV filenames (e.g. ['xc1002657_2860.wav', ...]) for the split.
 
     Note:
-        Handles comment lines starting with '#' which are produced
-        by Stage8 splitter scripts (MIP, genetic algorithm, simulated annealing).
+        Stage 8 CSVs use file_id as the key column (e.g. XC1002657_2860).
+        WAV filename is derived as: xc{file_id[2:]}.wav  (lowercase xc prefix).
+        Comment lines starting with '#' are skipped.
     """
     import csv
     from io import StringIO
 
     files = []
     with open(csv_path, 'r') as f:
-        # Filter out comment lines (Stage8 scripts add metadata comments)
         content = ''.join(line for line in f if not line.startswith('#'))
 
     reader = csv.DictReader(StringIO(content))
+    # Support both new (file_id) and legacy (filename) column names.
     for row in reader:
-        if row['split'] == split:
-            files.append(row['filename'])
+        if row['split'] != split:
+            continue
+        if 'file_id' in row:
+            fid = row['file_id']                        # e.g. XC1002657_2860
+            files.append('xc' + fid[2:] + '.wav')      # → xc1002657_2860.wav
+        else:
+            files.append(row['filename'])               # legacy fallback
 
     return files
 

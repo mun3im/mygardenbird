@@ -3,9 +3,16 @@
 Stage 7: Quality control and manifest generation.
 
 Analyzes extracted WAV segments and produces:
-  - qc_report.csv        — per-clip quality metrics
-  - seabird_dataset_manifest.csv — rich per-clip metadata for downstream use
-                                   (split column left empty; filled at Stage 8)
+  - qc_report.csv    — per-clip quality metrics (diagnostic)
+  - recordings.csv   — one row per source recording (PK: source_id)
+                         fields: source_id, species_common, species_scientific,
+                                 quality_grade, type_label, latitude, longitude, country
+  - clips.csv        — one row per clip (PK: file_id, FK: source_id)
+                         fields: file_id, source_id, clip_index,
+                                 sampling_rate, snr_db, rms_db, peak_amplitude, is_clipped
+                         wav_filename is derivable: xc{source_id}_{clip_index}.wav
+
+Split assignments are created at Stage 8 as separate split CSV files keyed on file_id.
 
 Quality checks performed:
   - Audio duration validation (~3 s)
@@ -16,23 +23,22 @@ Quality checks performed:
 
 Silent files are not expected at this stage (Stage 6 filters them);
 silence is detected and reported but not used as a rejection criterion.
-
-Splits are created at Stage 8.
 """
 
 import argparse
 import csv
 import sys
 from collections import defaultdict
+
 from pathlib import Path
 
 import librosa
 import numpy as np
 from tqdm import tqdm
 
-from config import ACTIVE_SPECIES, EXTRACTED_SEGS, DATASET_DIR, PER_SPECIES_CSV, PER_SPECIES_FLACS
+from config import ACTIVE_SPECIES, EXTRACTED_SEGS, DATASET_DIR, PER_SPECIES_CSV, PER_SPECIES_FLACS, normalise_type
 
-_COMMON_TO_INFO = {common: (common, scientific, code)
+_COMMON_TO_INFO = {common.lower(): (common, scientific, code)
                    for common, scientific, code in ACTIVE_SPECIES}
 
 
@@ -214,43 +220,6 @@ def save_qc_report(results, output_path):
     print(f"QC report saved to: {output_path}")
 
 
-# ---------------------------------------------------------------------------
-# Annotation index (Stage 5 .txt files)
-# ---------------------------------------------------------------------------
-
-def load_annotation_index(annotation_dir):
-    """
-    Build lookup: xc_id (str) -> {sequential_index (int) -> onset_ms (int)}.
-
-    Stage 5 annotation format (tab-separated):
-        start_time  end_time  label  index
-    where start_time is seconds from start of the source FLAC.
-    """
-    index = defaultdict(dict)
-    ann_dir = Path(annotation_dir)
-    if not ann_dir.exists():
-        return index
-    for txt_file in ann_dir.rglob("*.txt"):
-        stem = txt_file.stem.lower()
-        if not stem.startswith("xc"):
-            continue
-        xc_id = stem[2:]
-        try:
-            with open(txt_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    parts = line.split("\t")
-                    if len(parts) < 4:
-                        continue
-                    onset_ms = int(round(float(parts[0]) * 1000))
-                    seq_idx  = int(parts[3])
-                    index[xc_id][seq_idx] = onset_ms
-        except Exception:
-            continue
-    return index
-
 
 # ---------------------------------------------------------------------------
 # Stage 1 metadata
@@ -260,7 +229,7 @@ def load_xc_metadata(metadata_dir):
     """
     Load Stage 1 per-species CSVs.
 
-    Returns dict: xc_id (str) -> {lat, lon, quality_grade, recording_type, country}
+    Returns dict: xc_id (str) -> {lat, lon, quality_grade, type_label, country}
 
     Note: sampling_rate for the manifest comes from the WAV file itself (detected
     in check_audio_quality), not from the Stage 1 `smp` field (which is the
@@ -275,11 +244,11 @@ def load_xc_metadata(metadata_dir):
                     if not xc_id:
                         continue
                     meta[xc_id] = {
-                        "lat":            row.get("lat",  ""),
-                        "lon":            row.get("lon",  ""),
-                        "quality_grade":  row.get("q",    ""),
-                        "recording_type": row.get("type", ""),
-                        "country":        row.get("cnt",  ""),
+                        "lat":           row.get("lat", ""),
+                        "lon":           row.get("lon", ""),
+                        "quality_grade": row.get("q",   ""),
+                        "type_label":    normalise_type(row.get("type", "")),
+                        "country":       row.get("cnt", ""),
                     }
         except Exception:
             continue
@@ -287,80 +256,102 @@ def load_xc_metadata(metadata_dir):
 
 
 # ---------------------------------------------------------------------------
-# Manifest
+# Normalised output tables
 # ---------------------------------------------------------------------------
 
-def generate_manifest(results, output_path, annotation_index, xc_metadata):
+def _parse_stem(wav_name):
     """
-    Write seabird_dataset_manifest.csv — one row per WAV clip.
+    Extract (xc_id, onset_ms, file_id) from a wav filename stem.
+    Returns ("", "", stem) on failure.
+    """
+    stem = Path(wav_name).stem.lower()   # e.g. "xc1002657_2860"
+    xc_id = onset_ms = ""
+    try:
+        if stem.startswith("xc"):
+            parts = stem[2:].rsplit("_", 1)
+            if len(parts) == 2:
+                xc_id, onset_ms = parts[0], parts[1]
+    except Exception:
+        pass
+    file_id = f"XC{xc_id}_{onset_ms}" if (xc_id and onset_ms) else (f"XC{xc_id}" if xc_id else stem)
+    return xc_id, onset_ms, file_id
 
-    file_id format: XC{source_id}_{onset_ms}
-    clip_index    : onset in milliseconds from start of source FLAC
-    split         : empty column, populated at Stage 8
+
+def generate_recordings_csv(results, output_path, xc_metadata):
+    """
+    Write recordings.csv — one row per unique source recording (PK: source_id).
+
+    Columns: source_id, species_common, species_scientific,
+             quality_grade, type_label, latitude, longitude, country
     """
     fieldnames = [
-        "file_id", "source_id", "clip_index",
+        "source_id",
         "species_common", "species_scientific",
-        "latitude", "longitude",
-        "sampling_rate", "num_samples",
-        "snr_db", "rms_db", "peak_amplitude", "is_clipped",
-        "quality_grade", "recording_type", "country",
-        "wav_filename", "split",
+        "quality_grade", "type_label",
+        "latitude", "longitude", "country",
     ]
 
-    rows = []
+    seen = {}   # source_id -> row (first clip wins; all clips from same source share metadata)
     for species in sorted(results):
-        info = _COMMON_TO_INFO.get(species)
+        info = _COMMON_TO_INFO.get(species.lower())
         species_common     = info[0] if info else species
         species_scientific = info[1] if info else ""
 
         for metrics in results[species]:
-            wav_name = metrics["file"]          # e.g. xc1068442_3.wav
-            stem = Path(wav_name).stem.lower()  # xc1068442_3
-
-            xc_id   = ""
-            seq_idx = None
-            try:
-                if stem.startswith("xc"):
-                    parts = stem[2:].rsplit("_", 1)
-                    xc_id   = parts[0]
-                    seq_idx = int(parts[1]) if len(parts) == 2 else None
-            except Exception:
-                pass
-
-            onset_ms = ""
-            if xc_id and seq_idx is not None:
-                onset_ms = annotation_index.get(xc_id, {}).get(seq_idx, "")
-
-            if xc_id and onset_ms != "":
-                file_id = f"XC{xc_id}_{onset_ms}"
-            elif xc_id:
-                file_id = f"XC{xc_id}_{seq_idx if seq_idx is not None else ''}"
-            else:
-                file_id = stem
-
+            xc_id, _, _ = _parse_stem(metrics["file"])
+            if not xc_id or xc_id in seen:
+                continue
             meta = xc_metadata.get(xc_id, {})
-            snr  = metrics.get("snr_db")
-
-            rows.append({
-                "file_id":            file_id,
+            seen[xc_id] = {
                 "source_id":          xc_id,
-                "clip_index":         onset_ms,
                 "species_common":     species_common,
                 "species_scientific": species_scientific,
+                "quality_grade":      meta.get("quality_grade", ""),
+                "type_label":         meta.get("type_label", ""),
                 "latitude":           meta.get("lat", ""),
                 "longitude":          meta.get("lon", ""),
-                "sampling_rate":      metrics.get("sample_rate", ""),
-                "num_samples":        metrics.get("num_samples", ""),
-                "snr_db":             f"{snr:.2f}" if snr is not None else "",
-                "rms_db":             f"{metrics.get('rms_db', 0.0):.2f}",
-                "peak_amplitude":     f"{metrics.get('peak_amplitude', 0.0):.4f}",
-                "is_clipped":         metrics.get("is_clipped", False),
-                "quality_grade":      meta.get("quality_grade", ""),
-                "recording_type":     meta.get("recording_type", ""),
                 "country":            meta.get("country", ""),
-                "wav_filename":       wav_name,
-                "split":              "",   # Stage 8 fills this
+            }
+
+    rows = [seen[k] for k in sorted(seen)]
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"Recordings table saved to: {output_path}  ({len(rows)} source recordings)")
+
+
+def generate_clips_csv(results, output_path):
+    """
+    Write clips.csv — one row per WAV clip (PK: file_id, FK: source_id).
+
+    Columns: file_id, source_id, clip_index,
+             sampling_rate, snr_db, rms_db, peak_amplitude, is_clipped
+
+    wav_filename is derivable as: xc{source_id}_{clip_index}.wav
+    Split assignments are stored in separate Stage 8 split files keyed on file_id.
+    """
+    fieldnames = [
+        "file_id", "source_id", "clip_index",
+        "sampling_rate",
+        "snr_db", "rms_db", "peak_amplitude", "is_clipped",
+    ]
+
+    rows = []
+    for species in sorted(results):
+        for metrics in results[species]:
+            xc_id, onset_ms, file_id = _parse_stem(metrics["file"])
+            snr = metrics.get("snr_db")
+            rows.append({
+                "file_id":        file_id,
+                "source_id":      xc_id,
+                "clip_index":     onset_ms,
+                "sampling_rate":  metrics.get("sample_rate", ""),
+                "snr_db":         f"{snr:.2f}" if snr is not None else "",
+                "rms_db":         f"{metrics.get('rms_db', 0.0):.2f}",
+                "peak_amplitude": f"{metrics.get('peak_amplitude', 0.0):.4f}",
+                "is_clipped":     metrics.get("is_clipped", False),
             })
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -368,7 +359,7 @@ def generate_manifest(results, output_path, annotation_index, xc_metadata):
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"Dataset manifest saved to: {output_path}  ({len(rows)} clips)")
+    print(f"Clips table saved to: {output_path}  ({len(rows)} clips)")
 
 
 # ---------------------------------------------------------------------------
@@ -381,10 +372,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python Stage7_quality_control_selection.py ./extracted_segments \\
-      --output-dir ./dataset \\
-      --annotation-dir ./sounds \\
-      --metadata-dir ./xc_metadata_v3
+  python Stage7_clip_qc_manifest.py
+  python Stage7_clip_qc_manifest.py /path/to/extracted_segments --output-dir ./dataset
         """
     )
 
@@ -397,11 +386,6 @@ Examples:
     parser.add_argument(
         "--output-dir", default=str(DATASET_DIR),
         help=f"Output directory for QC report and manifest. Default: {DATASET_DIR}",
-    )
-    parser.add_argument(
-        "--annotation-dir", default=str(PER_SPECIES_FLACS),
-        help=f"Directory containing Stage 5 .txt annotation files (searched recursively). "
-             f"Used to resolve clip onset times (ms). Default: {PER_SPECIES_FLACS}",
     )
     parser.add_argument(
         "--metadata-dir", default=str(PER_SPECIES_CSV),
@@ -439,17 +423,14 @@ Examples:
     save_qc_report(results, output_dir / "qc_report.csv")
 
     print()
-    print("Loading annotation index and XC metadata...")
-    annotation_index = load_annotation_index(args.annotation_dir) if args.annotation_dir else {}
-    xc_metadata      = load_xc_metadata(args.metadata_dir)        if args.metadata_dir  else {}
+    print("Loading XC metadata...")
+    xc_metadata = load_xc_metadata(args.metadata_dir) if args.metadata_dir else {}
 
-    if not annotation_index:
-        print("  Warning: no annotation dir / no .txt files found — clip_index will be empty.")
     if not xc_metadata:
         print("  Warning: no metadata dir / no CSVs found — lat/lon/quality/type/country will be empty.")
 
-    generate_manifest(results, output_dir / "seabird_dataset_manifest.csv",
-                      annotation_index, xc_metadata)
+    generate_recordings_csv(results, output_dir / "recordings.csv", xc_metadata)
+    generate_clips_csv(results, output_dir / "clips.csv")
 
     print()
     print("Stage 7 complete.")
