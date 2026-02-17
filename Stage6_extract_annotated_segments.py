@@ -271,6 +271,11 @@ Examples:
 
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
+    # Auto-suffix the default output dir with the sample rate so that
+    # --sample-rate 44100 writes to extracted_segments_44100/ and never
+    # overwrites the existing extracted_segments/ (16 kHz) tree.
+    if args.output_dir == str(EXTRACTED_SEGS) and args.sample_rate != 16000:
+        output_dir = Path(str(EXTRACTED_SEGS) + f"_{args.sample_rate}")
 
     if not input_dir.exists():
         print(f"Error: Input directory does not exist: {input_dir}")
