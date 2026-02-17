@@ -392,11 +392,24 @@ Examples:
         help=f"Directory containing Stage 1 per-species CSV files. "
              f"Provides lat/lon/quality_grade/recording_type/country. Default: {PER_SPECIES_CSV}",
     )
+    parser.add_argument(
+        "--sample-rate", type=int, default=16000,
+        help="Sample rate of the extracted clips; used to resolve default input/output dirs. "
+             "E.g. --sample-rate 44100 reads from extracted_segments_44100/ and writes to "
+             "dataset_44100/. Default: 16000",
+    )
 
     args = parser.parse_args()
 
     input_dir  = Path(args.input_dir)
     output_dir = Path(args.output_dir)
+    # Auto-suffix default dirs with the sample rate so that a 44.1 kHz run
+    # reads from extracted_segments_44100/ and writes to dataset_44100/,
+    # leaving the existing 16 kHz tree completely untouched.
+    if args.input_dir == str(EXTRACTED_SEGS) and args.sample_rate != 16000:
+        input_dir = Path(str(EXTRACTED_SEGS) + f"_{args.sample_rate}")
+    if args.output_dir == str(DATASET_DIR) and args.sample_rate != 16000:
+        output_dir = Path(str(DATASET_DIR) + f"_{args.sample_rate}")
 
     if not input_dir.exists():
         print(f"Error: input directory does not exist: {input_dir}")
