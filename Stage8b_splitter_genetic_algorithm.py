@@ -1097,7 +1097,11 @@ Genetic Algorithm:
 
     parser.add_argument('--dataset', type=str, default=str(EXTRACTED_SEGS),
                        help='Path to dataset directory')
-    parser.add_argument('--output', type=str, default=str(SPLITS_DIR / 'seabird_splits_ga.csv'),
+    parser.add_argument('--dataset-label', type=str, default=None,
+                       help='Short label identifying the dataset variant, included in the output '
+                            'filename (e.g. "16khz", "44khz"). Auto-derived from --dataset path '
+                            'when not given: "44khz" if the path contains "44100", else "16khz".')
+    parser.add_argument('--output', type=str, default=str(SPLITS_DIR),
                        help='Output directory for split files')
     parser.add_argument('--train_ratio', type=float, default=0.75,
                        help='Target train ratio (default: 0.75)')
@@ -1134,6 +1138,13 @@ Genetic Algorithm:
 
     args = parser.parse_args()
     verbose = not args.quiet
+
+    # Build dataset label and auto-name the splits CSV
+    _label = args.dataset_label or ('44khz' if '44100' in str(args.dataset) else '16khz')
+    _t  = int(round(args.train_ratio * 100))
+    _v  = int(round(args.val_ratio   * 100))
+    _te = int(round(args.test_ratio  * 100))
+    _auto_csv = f"seabird_splits_ga_{_t}_{_v}_{_te}_{_label}.csv"
 
     # Validate ratios sum to 1.0
     ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio
@@ -1294,7 +1305,7 @@ Genetic Algorithm:
     stats = save_splits(structure, best_assignment, args.output)
 
     # Write splits CSV
-    csv_path = Path(args.output) / 'seabird_splits.csv'
+    csv_path = Path(args.output) / _auto_csv
     create_splits_csv(structure, best_assignment, csv_path,
                       train_ratio=TARGET_TRAIN_RATIO,
                       val_ratio=TARGET_VAL_RATIO,
