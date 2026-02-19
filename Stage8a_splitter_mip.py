@@ -32,7 +32,7 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 import time
 
-from config import EXTRACTED_SEGS, SPLITS_DIR
+from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
 
 try:
     from pulp import (
@@ -571,7 +571,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage (outputs seabird_splits.csv next to dataset)
+  # Basic usage (outputs splits_mip.csv next to dataset)
   python seabird_splitter_mip.py --dataset /path/to/seabird16khz_flat
 
   # Custom split ratio
@@ -582,14 +582,14 @@ Examples:
         """
     )
 
-    parser.add_argument('--dataset', type=str, default=str(EXTRACTED_SEGS),
-                       help=f'Path to dataset directory. Default: {EXTRACTED_SEGS}')
+    parser.add_argument('--dataset', type=str, default=str(MYGARDENBIRD_16K),
+                       help=f'Path to dataset directory. Default: {MYGARDENBIRD_16K}')
     parser.add_argument('--dataset-label', type=str, default=None,
                        help='Short label identifying the dataset variant, included in the output '
                             'filename (e.g. "16khz", "44khz"). Auto-derived from --dataset path '
-                            'when not given: "44khz" if the path contains "44100", else "16khz".')
-    parser.add_argument('--output', type=str, default=str(SPLITS_DIR / 'seabird_splits_mip.csv'),
-                       help='Output CSV path (default: auto-named seabird_splits_mip_<ratios>_<label>.csv in SPLITS_DIR)')
+                            'when not given: "44khz" if the path contains "44", else "16khz".')
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output CSV path (default: auto-named splits_mip_<ratios>.csv in metadata directory corresponding to --dataset)')
     parser.add_argument('--train_ratio', type=float, default=0.75,
                        help='Target train ratio (default: 0.75)')
     parser.add_argument('--val_ratio', type=float, default=0.10,
@@ -608,15 +608,19 @@ Examples:
     args = parser.parse_args()
     verbose = not args.quiet
 
-    # Build dataset label and auto-name the output CSV
-    _label = args.dataset_label or ('44khz' if '44100' in str(args.dataset) else '16khz')
+    # Build dataset label and auto-name the output CSV in the appropriate metadata directory
+    _label = args.dataset_label or ('44khz' if '44' in str(args.dataset) else '16khz')
     _t  = int(round(args.train_ratio * 100))
     _v  = int(round(args.val_ratio   * 100))
     _te = int(round(args.test_ratio  * 100))
-    _auto_csv = f"seabird_splits_mip_{_t}_{_v}_{_te}_{_label}.csv"
-    _default_output = str(SPLITS_DIR / 'seabird_splits_mip.csv')
-    if args.output == _default_output:
-        args.output = str(SPLITS_DIR / _auto_csv)
+    _auto_csv = f"splits_mip_{_t}_{_v}_{_te}.csv"
+
+    # Auto-select output directory based on dataset path if not specified
+    if args.output is None:
+        if '44' in str(args.dataset):
+            args.output = str(METADATA_44K / _auto_csv)
+        else:
+            args.output = str(METADATA_16K / _auto_csv)
 
     # Validate ratios sum to 1.0
     ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio

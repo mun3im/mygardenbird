@@ -27,7 +27,7 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 from tqdm import tqdm
 
-from config import EXTRACTED_SEGS, SPLITS_DIR
+from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
 
 try:
     import matplotlib.pyplot as plt
@@ -879,14 +879,14 @@ Simulated Annealing:
         """
     )
 
-    parser.add_argument('--dataset', type=str, default=str(EXTRACTED_SEGS),
+    parser.add_argument('--dataset', type=str, default=str(MYGARDENBIRD_16K),
                        help='Path to dataset directory')
     parser.add_argument('--dataset-label', type=str, default=None,
                        help='Short label identifying the dataset variant, included in the output '
                             'filename (e.g. "16khz", "44khz"). Auto-derived from --dataset path '
-                            'when not given: "44khz" if the path contains "44100", else "16khz".')
-    parser.add_argument('--output', type=str, default=str(SPLITS_DIR),
-                       help='Output directory for split files')
+                            'when not given: "44khz" if the path contains "44", else "16khz".')
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output directory for split files (default: metadata directory corresponding to --dataset)')
     parser.add_argument('--train_ratio', type=float, default=0.75,
                        help='Target train ratio (default: 0.75)')
     parser.add_argument('--val_ratio', type=float, default=0.10,
@@ -920,11 +920,18 @@ Simulated Annealing:
     verbose = not args.quiet
 
     # Build dataset label and auto-name the splits CSV
-    _label = args.dataset_label or ('44khz' if '44100' in str(args.dataset) else '16khz')
+    _label = args.dataset_label or ('44khz' if '44' in str(args.dataset) else '16khz')
     _t  = int(round(args.train_ratio * 100))
     _v  = int(round(args.val_ratio   * 100))
     _te = int(round(args.test_ratio  * 100))
-    _auto_csv = f"seabird_splits_sa_{_t}_{_v}_{_te}_{_label}.csv"
+    _auto_csv = f"splits_sa_{_t}_{_v}_{_te}.csv"
+
+    # Auto-select output directory based on dataset path if not specified
+    if args.output is None:
+        if '44' in str(args.dataset):
+            args.output = str(METADATA_44K)
+        else:
+            args.output = str(METADATA_16K)
 
     # Validate ratios sum to 1.0
     ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio

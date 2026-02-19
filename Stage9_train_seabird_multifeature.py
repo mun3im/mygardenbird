@@ -26,16 +26,16 @@ python Stage9_train_seabird_multifeature.py --seed 100 --use_pretrained
 
 # Use CSV-based splits (recommended):
 python Stage9_train_seabird_multifeature.py \\
-    --splits_csv ./seabird_splits_mip_75_10_15.csv \\
-    --dataset_root /path/to/audio/files \\
+    --splits_csv /Volumes/Evo/MYGARDENBIRD/metadata16khz/splits_mip_75_10_15.csv \\
+    --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \\
     --use_pretrained
 
 # Full example with all options:
 python Stage9_train_seabird_multifeature.py \\
     --model efficientnetb0 \\
     --feature mel \\
-    --splits_csv ./seabird_splits_mip_75_10_15.csv \\
-    --dataset_root /Volumes/Evo/seabird16khz_flat \\
+    --splits_csv /Volumes/Evo/MYGARDENBIRD/metadata16khz/splits_mip_75_10_15.csv \\
+    --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \\
     --batch_size 32 \\
     --num_epochs 50 \\
     --learning_rate 0.001 \\
@@ -59,7 +59,7 @@ Defaults
 --n_fft          2048
 --num_workers    4
 --output_dir     ./results
---dataset_root   /Volumes/Evo/seabird16khz_flat
+--dataset_root   /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz
 """
 
 import os
@@ -87,7 +87,7 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     print("Warning: psutil not available. Install with 'pip install psutil' for detailed system info.")
 
-from config import EXTRACTED_SEGS, SPLITS_DIR
+from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
 
 import tensorflow as tf
 from tensorflow import keras
@@ -224,7 +224,7 @@ def load_splits_from_csv(csv_path: str, split: str = 'train') -> List[str]:
     Load WAV filenames for a specific split from a Stage 8 splits CSV.
 
     Args:
-        csv_path: Path to a seabird_splits_*.csv file
+        csv_path: Path to a splits_*.csv file
         split: 'train', 'val', or 'test'
 
     Returns:
@@ -254,6 +254,77 @@ def load_splits_from_csv(csv_path: str, split: str = 'train') -> List[str]:
             files.append(row['filename'])               # legacy fallback
 
     return files
+
+
+def print_per_class_breakdown(csv_path: str, dataset_root: str, classes: list):
+    """
+    Print a per-class clip and source count table for train/val/test splits.
+    Only meaningful when a splits CSV is provided.
+    """
+    import csv as _csv
+    from io import StringIO
+    from collections import defaultdict
+
+    # Build filename -> split mapping
+    file_to_split = {}
+    with open(csv_path, 'r') as f:
+        content = ''.join(line for line in f if not line.startswith('#'))
+    reader = _csv.DictReader(StringIO(content))
+    for row in reader:
+        sp = row['split']
+        if 'file_id' in row:
+            wav = 'xc' + row['file_id'][2:] + '.wav'
+        else:
+            wav = row['filename']
+        file_to_split[wav] = sp
+
+    clip_counts = defaultdict(lambda: defaultdict(int))
+    src_sets    = defaultdict(lambda: defaultdict(set))
+
+    for cls in classes:
+        cls_dir = os.path.join(dataset_root, cls)
+        if not os.path.isdir(cls_dir):
+            continue
+        for fname in os.listdir(cls_dir):
+            if not fname.lower().endswith(('.wav', '.mp3')):
+                continue
+            sp = file_to_split.get(fname)
+            if sp is None:
+                continue
+            clip_counts[cls][sp] += 1
+            stem = os.path.splitext(fname)[0]   # e.g. xc1002657_2860
+            src_id = stem.split('_')[0]          # e.g. xc1002657
+            src_sets[cls][sp].add(src_id)
+
+    splits = ['train', 'val', 'test']
+    print()
+    print("Per-Class Breakdown:")
+    print(f"{'Class':<33} {'Train':>7} {'Val':>6} {'Test':>6} {'Total':>7} | Sources")
+    print("-" * 80)
+    tot_clips = defaultdict(int)
+    tot_srcs  = defaultdict(set)
+    for cls in sorted(classes):
+        tr = clip_counts[cls].get('train', 0)
+        va = clip_counts[cls].get('val',   0)
+        te = clip_counts[cls].get('test',  0)
+        total = tr + va + te
+        s_tr = len(src_sets[cls].get('train', set()))
+        s_va = len(src_sets[cls].get('val',   set()))
+        s_te = len(src_sets[cls].get('test',  set()))
+        print(f"{cls:<33} {tr:>7} {va:>6} {te:>6} {total:>7} | {s_tr:3d}/{s_va:2d}/{s_te:2d}")
+        for sp in splits:
+            tot_clips[sp] += clip_counts[cls].get(sp, 0)
+            tot_srcs[sp].update(src_sets[cls].get(sp, set()))
+    print("-" * 80)
+    tr_t = tot_clips['train']
+    va_t = tot_clips['val']
+    te_t = tot_clips['test']
+    grand = tr_t + va_t + te_t
+    s_tr_t = len(tot_srcs['train'])
+    s_va_t = len(tot_srcs['val'])
+    s_te_t = len(tot_srcs['test'])
+    print(f"{'OVERALL':<33} {tr_t:>7} {va_t:>6} {te_t:>6} {grand:>7} | {s_tr_t:3d}/{s_va_t:2d}/{s_te_t:2d}")
+    print()
 
 
 def build_dataset(
@@ -674,13 +745,13 @@ def main():
     parser.add_argument('--model', default='mobilenetv3s', choices=['mobilenetv3s', 'resnet50', 'vgg16', 'efficientnetb0'])
     parser.add_argument('--feature', default='mel', choices=['mel', 'stft', 'mfcc'],
                        help='Feature type: mel (spectrogram), stft, or mfcc (with deltas)')
-    parser.add_argument('--train_dir', default=str(EXTRACTED_SEGS / 'train'))
-    parser.add_argument('--val_dir', default=str(EXTRACTED_SEGS / 'val'))
-    parser.add_argument('--test_dir', default=str(EXTRACTED_SEGS / 'test'))
+    parser.add_argument('--train_dir', default=str(MYGARDENBIRD_16K / 'train'))
+    parser.add_argument('--val_dir', default=str(MYGARDENBIRD_16K / 'val'))
+    parser.add_argument('--test_dir', default=str(MYGARDENBIRD_16K / 'test'))
     parser.add_argument('--splits_csv', default=None, type=str,
                        help='Path to splits CSV file (if provided, uses CSV-based splits instead of directories). Can be relative to current directory.')
-    parser.add_argument('--dataset_root', default=str(EXTRACTED_SEGS), type=str,
-                       help=f'Root directory containing all audio files (used with --splits_csv). Default: {EXTRACTED_SEGS}')
+    parser.add_argument('--dataset_root', default=str(MYGARDENBIRD_16K), type=str,
+                       help=f'Root directory containing all audio files (used with --splits_csv). Default: {MYGARDENBIRD_16K}')
     parser.add_argument('--sample_rate', type=int, default=16000)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_epochs', type=int, default=50)
@@ -779,6 +850,9 @@ def main():
     print(f"✓ Datasets built with {args.feature} features")
     print(f"✓ Classes: {len(classes)}")
     print(classes)
+
+    if args.splits_csv:
+        print_per_class_breakdown(args.splits_csv, args.dataset_root, classes)
 
     print("Creating model...")
     model, base = create_model(args.model, len(classes), args.use_pretrained)

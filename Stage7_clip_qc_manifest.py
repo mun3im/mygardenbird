@@ -36,7 +36,7 @@ import librosa
 import numpy as np
 from tqdm import tqdm
 
-from config import ACTIVE_SPECIES, EXTRACTED_SEGS, DATASET_DIR, PER_SPECIES_CSV, PER_SPECIES_FLACS, normalise_type
+from config import ACTIVE_SPECIES, MYGARDENBIRD_16K, METADATA_16K, PER_SPECIES_CSV, RECORDINGS_CSV, normalise_type
 
 _COMMON_TO_INFO = {common.lower(): (common, scientific, code)
                    for common, scientific, code in ACTIVE_SPECIES}
@@ -380,12 +380,12 @@ Examples:
     parser.add_argument(
         "input_dir",
         nargs="?",
-        default=str(EXTRACTED_SEGS),
-        help=f"Directory of extracted WAV segments organised by species subfolder. Default: {EXTRACTED_SEGS}",
+        default=str(MYGARDENBIRD_16K),
+        help=f"Directory of extracted WAV segments organised by species subfolder. Default: {MYGARDENBIRD_16K}",
     )
     parser.add_argument(
-        "--output-dir", default=str(DATASET_DIR),
-        help=f"Output directory for QC report and manifest. Default: {DATASET_DIR}",
+        "--output-dir", default=str(METADATA_16K),
+        help=f"Output directory for metadata CSVs (clips.csv, qc_report.csv). Default: {METADATA_16K}",
     )
     parser.add_argument(
         "--metadata-dir", default=str(PER_SPECIES_CSV),
@@ -393,23 +393,15 @@ Examples:
              f"Provides lat/lon/quality_grade/recording_type/country. Default: {PER_SPECIES_CSV}",
     )
     parser.add_argument(
-        "--sample-rate", type=int, default=16000,
-        help="Sample rate of the extracted clips; used to resolve default input/output dirs. "
-             "E.g. --sample-rate 44100 reads from extracted_segments_44100/ and writes to "
-             "dataset_44100/. Default: 16000",
+        "--recordings-csv", default=str(RECORDINGS_CSV),
+        help=f"Path to top-level recordings.csv (shared by both 16kHz and 44kHz variants). Default: {RECORDINGS_CSV}",
     )
 
     args = parser.parse_args()
 
-    input_dir  = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
-    # Auto-suffix default dirs with the sample rate so that a 44.1 kHz run
-    # reads from extracted_segments_44100/ and writes to dataset_44100/,
-    # leaving the existing 16 kHz tree completely untouched.
-    if args.input_dir == str(EXTRACTED_SEGS) and args.sample_rate != 16000:
-        input_dir = Path(str(EXTRACTED_SEGS) + f"_{args.sample_rate}")
-    if args.output_dir == str(DATASET_DIR) and args.sample_rate != 16000:
-        output_dir = Path(str(DATASET_DIR) + f"_{args.sample_rate}")
+    input_dir       = Path(args.input_dir)
+    output_dir      = Path(args.output_dir)
+    recordings_path = Path(args.recordings_csv)
 
     if not input_dir.exists():
         print(f"Error: input directory does not exist: {input_dir}")
@@ -442,7 +434,17 @@ Examples:
     if not xc_metadata:
         print("  Warning: no metadata dir / no CSVs found — lat/lon/quality/type/country will be empty.")
 
-    generate_recordings_csv(results, output_dir / "recordings.csv", xc_metadata)
+    # Write recordings.csv to top level (shared by both 16kHz and 44kHz variants)
+    # Only generate if it doesn't exist, to avoid re-parsing XC metadata repeatedly
+    if not recordings_path.exists():
+        print()
+        print(f"Generating top-level recordings.csv at {recordings_path}...")
+        generate_recordings_csv(results, recordings_path, xc_metadata)
+    else:
+        print()
+        print(f"Using existing recordings.csv at {recordings_path}")
+
+    # Write variant-specific metadata (clips.csv, qc_report.csv) to output_dir
     generate_clips_csv(results, output_dir / "clips.csv")
 
     print()

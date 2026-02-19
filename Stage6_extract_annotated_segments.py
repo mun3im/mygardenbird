@@ -24,7 +24,7 @@ import soundfile as sf
 import numpy as np
 from tqdm import tqdm
 
-from config import PER_SPECIES_FLACS, EXTRACTED_SEGS
+from config import PER_SPECIES_FLACS, MYGARDENBIRD_16K, MYGARDENBIRD_44K, DATASET_ROOT
 
 
 def find_annotation_files(input_dir, recursive=True):
@@ -144,9 +144,12 @@ def get_species_from_path(flac_path, input_dir):
 
 
 def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
-                            target_sr=16000, audio_format='wav'):
+                            target_sr=16000, audio_format='wav', no_upsample=False):
     """
     Process a single annotation file and extract all segments.
+
+    If no_upsample=True, files whose native sample rate is below target_sr are
+    skipped entirely (all their segments counted as 'upsample_skip').
 
     Returns:
         dict with extraction statistics
@@ -155,6 +158,7 @@ def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
         'total_segments': 0,
         'extracted': 0,
         'skipped': 0,
+        'upsample_skip': 0,
         'errors': 0
     }
 
@@ -174,6 +178,11 @@ def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
     except Exception as e:
         print(f"Error loading {flac_path}: {e}")
         stats['errors'] = stats['total_segments']
+        return stats
+
+    # Skip source files that would require upsampling when --no-upsample is set
+    if no_upsample and sr < target_sr:
+        stats['upsample_skip'] = stats['total_segments']
         return stats
 
     # Get species name from directory structure
@@ -241,8 +250,8 @@ Examples:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(EXTRACTED_SEGS),
-        help=f"Output directory for extracted WAV segments. Default: {EXTRACTED_SEGS}",
+        default=None,
+        help=f"Output directory for extracted WAV segments. If not specified, auto-detects based on sample rate: 16kHz → {MYGARDENBIRD_16K}, 44.1kHz → {MYGARDENBIRD_44K}",
     )
     parser.add_argument(
         "--sample-rate",
@@ -262,6 +271,13 @@ Examples:
         help="Don't search subdirectories for annotation files."
     )
     parser.add_argument(
+        "--no-upsample",
+        action="store_true",
+        help="Skip source files whose native sample rate is below --sample-rate. "
+             "Use with --sample-rate 44100 to produce a high-fidelity subset that "
+             "contains only recordings originally captured at ≥44.1 kHz."
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be extracted without actually extracting."
@@ -270,12 +286,18 @@ Examples:
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
-    # Auto-suffix the default output dir with the sample rate so that
-    # --sample-rate 44100 writes to extracted_segments_44100/ and never
-    # overwrites the existing extracted_segments/ (16 kHz) tree.
-    if args.output_dir == str(EXTRACTED_SEGS) and args.sample_rate != 16000:
-        output_dir = Path(str(EXTRACTED_SEGS) + f"_{args.sample_rate}")
+
+    # Auto-select output directory based on sample rate if not explicitly specified
+    if args.output_dir is None:
+        if args.sample_rate == 16000:
+            output_dir = MYGARDENBIRD_16K
+        elif args.sample_rate == 44100:
+            output_dir = MYGARDENBIRD_44K
+        else:
+            # Fallback for non-standard sample rates
+            output_dir = DATASET_ROOT / f"mygardenbird{args.sample_rate//1000}khz"
+    else:
+        output_dir = Path(args.output_dir)
 
     if not input_dir.exists():
         print(f"Error: Input directory does not exist: {input_dir}")
@@ -291,6 +313,7 @@ Examples:
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
     print(f"Target sample rate: {args.sample_rate} Hz")
+    print(f"No-upsample filter: {args.no_upsample}")
     print(f"Output format: {args.format}")
     print(f"Recursive search: {not args.no_recursive}")
     print(f"Dry run: {args.dry_run}")
@@ -325,7 +348,8 @@ Examples:
     for annotation_path, flac_path in tqdm(annotation_pairs, desc="Processing files"):
         stats = process_annotation_file(
             annotation_path, flac_path, output_dir, input_dir,
-            target_sr=args.sample_rate, audio_format=args.format
+            target_sr=args.sample_rate, audio_format=args.format,
+            no_upsample=args.no_upsample,
         )
 
         # Update totals
@@ -350,6 +374,8 @@ Examples:
     print(f"Total segments found: {total_stats['total_segments']}")
     print(f"Successfully extracted: {total_stats['extracted']}")
     print(f"Skipped (already exist): {total_stats['skipped']}")
+    if total_stats['upsample_skip']:
+        print(f"Skipped (native rate < target, --no-upsample): {total_stats['upsample_skip']}")
     print(f"Errors: {total_stats['errors']}")
     print()
 
