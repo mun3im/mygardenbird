@@ -152,15 +152,26 @@ Training produces:
 
 ## Benchmark Results
 
-> **Note:** Results below are from the 10-class / 6,000-clip dataset. Re-training on the full 12-class / 7,200-clip dataset is pending.
+> **Note:** Results below are from the finalised 10-class / 6,000-clip dataset (Barbet + Waterhen replacing Myna + Zebra Dove).
+> EfficientNetB0, ResNet50, and VGG16 multi-seed results are from an earlier 10-class configuration and will be updated.
+> Full re-training on the geographically-filtered dataset (lon ≥ 60°E) is pending.
 
 Test accuracy (%) with 75:10:15 split, averaged over seeds 42, 100, 786:
 
 | Model | Mel | STFT | MFCC |
 |-------|-----|------|------|
 | EfficientNetB0 | **93.4 ± 2.6** | 91.0 ± 1.5 | 89.4 ± 1.3 |
-| MobileNetV3S | 90.1 | - | - |
+| MobileNetV3S | **87.22 ± 0.24** | - | - |
 | ResNet50 | 88.8 ± 2.9 | 91.0 ± 1.1 | 86.0 ± 1.6 |
 | VGG16 | 88.2 ± 0.8 | 86.7 ± 1.8 | 81.9 ± 3.4 |
+
+### MobileNetV3S + Mel per-seed breakdown (10-class, seeds 42/100/786)
+
+| Seed | Test Acc | Common Iora F1 | Spotted Dove F1 | LT Nightjar F1 |
+|------|----------|----------------|-----------------|----------------|
+| 42   | 87.44%   | 0.781          | 0.995           | 0.929          |
+| 100  | 86.89%   | 0.762          | 0.994           | 0.954          |
+| 786  | 87.33%   | 0.742          | 0.989           | 0.960          |
+| **Mean** | **87.22 ± 0.24%** | **0.762** | **0.993** | **0.948** |
 
 **Recommendation:** Use EfficientNetB0 + Mel for best accuracy, or MobileNetV3S + Mel for edge deployment.

@@ -9,24 +9,32 @@ Contains:
 Directory layout produced by the pipeline:
 
   PROJECT_ROOT/
-  └── DATASET_NAME/                     (e.g. /Volumes/Evo/SEABIRD)
+  └── DATASET_NAME/                     (e.g. /Volumes/Evo/MYGARDENBIRD)
       ├── target_species.csv
+      ├── recordings.csv                Top-level — source recording metadata (shared)
       ├── per_species_csv/              Stage 1 — XC metadata CSVs
-      │   ├── Zebra Dove.csv
+      │   ├── Species Name.csv
       │   └── ...
-      ├── per_species_flacs/            Stage 2/3 — downloaded mono FLACs
-      │   ├── Zebra Dove/
+      ├── per_species_flacs/            Stage 2/3 — downloaded mono FLACs + annotations
+      │   ├── Species Name/
       │   │   ├── A/xc####.flac
+      │   │   │   xc####.txt
       │   │   └── ...
       │   └── ...
-      ├── extracted_segments/           Stage 6 — 3-second WAV clips
-      │   ├── Zebra Dove/xc####_0.wav
+      ├── mygardenbird16khz/            Stage 6 (16kHz) — 3-second WAV clips
+      │   ├── Species Name/xc####_0.wav
       │   └── ...
-      ├── dataset/                      Stage 7 — QC report + manifest
+      ├── mygardenbird44khz/            Stage 6 (44kHz) — 3-second WAV clips
+      │   ├── Species Name/xc####_0.wav
+      │   └── ...
+      ├── metadata16khz/                Stage 7 (16kHz) — QC + manifest + splits
+      │   ├── clips.csv
       │   ├── qc_report.csv
-      │   └── seabird_dataset_manifest.csv
-      └── splits/                       Stage 8 — train/val/test split CSVs
-          └── seabird_splits_*.csv
+      │   └── splits_mip_75_10_15.csv
+      └── metadata44khz/                Stage 7 (44kHz) — QC + manifest + splits
+          ├── clips.csv
+          ├── qc_report.csv
+          └── splits_mip_75_10_15.csv
 """
 
 import csv
@@ -37,7 +45,7 @@ from pathlib import Path
 # =============================================================================
 
 PROJECT_ROOT = "/Volumes/Evo"   # Root mount point / storage root
-DATASET_NAME = "SEABIRD"        # Top-level folder inside PROJECT_ROOT
+DATASET_NAME = "MYGARDENBIRD"        # Top-level folder inside PROJECT_ROOT
 
 # =============================================================================
 # DERIVED PATHS — do not edit below this line
@@ -45,11 +53,25 @@ DATASET_NAME = "SEABIRD"        # Top-level folder inside PROJECT_ROOT
 
 DATASET_ROOT      = Path(PROJECT_ROOT) / DATASET_NAME
 
+# Source data directories
 PER_SPECIES_CSV   = DATASET_ROOT / "per_species_csv"
 PER_SPECIES_FLACS = DATASET_ROOT / "per_species_flacs"
-EXTRACTED_SEGS    = DATASET_ROOT / "extracted_segments"
-DATASET_DIR       = DATASET_ROOT / "dataset"
-SPLITS_DIR        = DATASET_ROOT / "splits"
+
+# Extracted audio clips (training-ready, organized by species)
+MYGARDENBIRD_16K  = DATASET_ROOT / "mygardenbird16khz"
+MYGARDENBIRD_44K  = DATASET_ROOT / "mygardenbird44khz"
+
+# Metadata CSVs (clips.csv, qc_report.csv, splits)
+METADATA_16K      = DATASET_ROOT / "metadata16khz"
+METADATA_44K      = DATASET_ROOT / "metadata44khz"
+
+# Top-level shared metadata
+RECORDINGS_CSV    = DATASET_ROOT / "recordings.csv"
+
+# Legacy aliases (for backward compatibility with existing scripts)
+EXTRACTED_SEGS    = MYGARDENBIRD_16K
+DATASET_DIR       = METADATA_16K
+SPLITS_DIR        = DATASET_ROOT / "splits"  # Deprecated; splits now live in metadata dirs
 
 # target_species.csv lives in the dataset root, not alongside the scripts
 _SPECIES_CSV = DATASET_ROOT / "target_species.csv"
@@ -104,6 +126,30 @@ def resolve_species(name: str):
         if lower in (common.lower(), scientific.lower(), code.lower()):
             return (common, scientific, code)
     return None
+
+
+_SONG_PREFIXES   = ("song", "dawn song", "subsong", "sub-song", "duet")
+_CALL_SUBSTRINGS = ("call",)
+
+
+def normalise_type(raw_type: str) -> str:
+    """Map a raw XC 'type' field to one of: song | call | other.
+
+    Takes the first comma-separated token (the primary type), lowercases it,
+    then classifies:
+      - starts with a song prefix          → "song"
+      - contains the word "call"           → "call"
+      - everything else (wing beats, etc.) → "other"
+    Falls back to "other" if the field is blank.
+    """
+    if not raw_type:
+        return "other"
+    primary = raw_type.split(",")[0].strip().lower()
+    if any(primary.startswith(p) for p in _SONG_PREFIXES):
+        return "song"
+    if any(s in primary for s in _CALL_SUBSTRINGS):
+        return "call"
+    return "other"
 
 
 if __name__ == "__main__":
