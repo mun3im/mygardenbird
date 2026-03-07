@@ -18,7 +18,7 @@ Master list of 50 Malaysian bird species common in urban and peri-urban environm
 
 **Note:** All 50 species are commonly reported in the Malaysian Garden Birdwatch survey. Setting `active=yes` for additional species will trigger Stage 1 to download Xeno-canto metadata for those species.
 
-
+---
 ### `recordings.csv`
 Source recording metadata from Xeno-canto (1,123 unique recordings).
 
@@ -33,6 +33,7 @@ Source recording metadata from Xeno-canto (1,123 unique recordings).
 
 **Usage:** Referenced by Stage 2 (downloading) and Stage 3-7 (segmentation). The `source_id` serves as the primary key linking recordings to extracted clips.
 
+---
 ### `regional_ranking.csv`
 Species selection criteria and regional abundance rankings.
 
@@ -44,10 +45,12 @@ Species selection criteria and regional abundance rankings.
 
 **Usage:** Documents the rationale for species selection in the paper.
 
+---
 ## Data Source
 
 All metadata is derived from [Xeno-canto](https://www.xeno-canto.org/), a citizen science bird sound repository. Species selection is based on the MY Garden Birdwatch survey.
 
+---
 ## License Compliance
 
 Source recordings carry various Creative Commons licenses:
