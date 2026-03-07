@@ -1,0 +1,51 @@
+rank,common_name,scientific_name,ebird_code,regional_hours,regional_files,global_files,q_A,q_B,q_C,q_D,q_E
+1,Greater Racket-tailed Drongo,Dicrurus paradiseus,grtdro1,5.12,408,506,103,232,63,8,2
+2,Olive-backed Sunbird,Cinnyris jugularis,olbsun4,4.30,340,405,61,185,64,26,4
+3,Large-tailed Nightjar,Caprimulgus macrurus,latnig2,2.98,207,295,19,124,53,9,2
+4,Common Iora,Aegithina tiphia,comior1,2.45,233,373,19,112,75,21,6
+5,Common Tailorbird,Orthotomus sutorius,comtai1,2.33,250,490,24,151,61,9,5
+6,Brown-throated Sunbird,Anthreptes malacensis,pltsun2,1.82,178,187,31,94,39,12,2
+7,Asian Koel,Eudynamys scolopaceus,asikoe2,1.80,215,475,85,104,21,2,3
+8,Ashy Tailorbird,Orthotomus ruficeps,ashtai1,1.78,183,187,67,86,27,2,1
+9,Yellow-vented Bulbul,Pycnonotus goiavier,yevbul1,1.76,136,141,19,58,49,8,2
+10,White-breasted Waterhen,Amaurornis phoenicurus,whbwat1,1.63,137,387,23,84,25,4,1
+11,Spotted Dove,Spilopelia chinensis,spodov,1.41,127,300,7,75,36,8,1
+12,Lineated Barbet,Psilopogon lineatus,linbar1,1.38,158,197,6,102,45,2,3
+13,Pied Fantail,Rhipidura javanica,piefan1,1.32,142,146,28,96,15,3,0
+14,Coppersmith Barbet,Psilopogon haemacephalus,copbar1,1.25,136,220,20,31,66,18,1
+15,Zebra Dove,Geopelia striata,zebdov,1.14,131,188,19,74,20,10,8
+16,Collared Kingfisher,Todiramphus chloris,colkin1,1.09,147,183,45,78,20,2,2
+17,Scarlet-backed Flowerpecker,Dicaeum cruentatum,scbflo1,1.02,125,173,22,43,42,15,3
+18,White-throated Kingfisher,Halcyon smyrnensis,whtkin2,1.02,122,309,17,78,23,1,3
+19,Asian Glossy Starling,Aplonis panayensis,asgsta1,0.84,80,95,18,41,14,6,1
+20,Eurasian Tree Sparrow,Passer montanus,eutspa,0.78,68,2799,0,39,24,3,2
+21,Olive-winged Bulbul,Pycnonotus plumosus,olwbul1,0.78,80,82,30,41,5,3,1
+22,Red-whiskered Bulbul,Pycnonotus jocosus,rewbul,0.73,58,294,4,39,11,2,2
+23,Common Myna,Acridotheres tristis,commyn,0.60,57,377,3,42,3,8,1
+24,Golden-bellied Gerygone,Gerygone sulphurea,gobger1,0.58,93,93,8,50,29,6,0
+25,Scaly-breasted Munia,Lonchura punctulata,nutman,0.52,70,170,7,16,43,4,0
+26,Baya Weaver,Ploceus philippinus,baywea1,0.46,36,82,5,11,16,3,1
+27,Blue-throated Bee-eater,Merops viridis,btbeat2,0.42,47,49,6,25,12,3,1
+28,Pacific Swallow,Hirundo tahitica,pacswa1,0.41,51,73,17,23,5,4,0
+29,Blue-tailed Bee-eater,Merops philippinus,btbeat1,0.41,59,112,5,21,28,4,1
+30,Paddyfield Pipit,Anthus rufulus,oripip1,0.38,63,117,1,25,29,7,1
+31,Pink-necked Green Pigeon,Treron vernans,pinpig3,0.38,46,46,6,29,9,2,0
+32,Swinhoe's White-eye,Zosterops simplex,swiwhe1,0.36,53,251,6,32,10,5,0
+33,Long-tailed Parakeet,Psittacula longicauda,lotpar2,0.32,45,70,15,21,7,0,2
+34,Little Egret,Egretta garzetta,litegr,0.30,29,658,10,13,2,1,3
+35,Red-eyed Bulbul,Pycnonotus brunneus,reebul1,0.26,30,30,8,15,5,2,0
+36,Pied Triller,Lalage nigra,pietri1,0.24,39,42,1,13,13,8,4
+37,House Crow,Corvus splendens,houcro1,0.24,29,219,8,13,7,0,1
+38,Grey-breasted Spiderhunter,Arachnothera modesta,gybspi2,0.22,16,16,4,6,3,2,0
+39,Sunda Pygmy Woodpecker,Yungipicus moluccensis,bncwoo2,0.20,31,34,7,15,4,0,0
+40,Little Green Pigeon,Treron olax,ligpig1,0.12,16,16,0,5,11,0,0
+41,Black-bellied Malkoha,Phaenicophaeus diardi,blbmal1,0.09,9,9,3,5,1,0,0
+42,Gray Heron,Ardea cinerea,graher1,0.09,8,2071,0,6,2,0,0
+43,Little Heron,Butorides striata,strher1,0.05,19,238,8,7,3,1,0
+44,Rock Pigeon,Columba livia,rocpig,0.05,8,285,0,5,2,0,1
+45,Painted Stork,Mycteria leucocephala,paisto1,0.02,3,19,0,2,1,0,0
+46,Medium Egret,Ardea intermedia,integr1,0.02,2,13,0,1,0,1,0
+47,Black-naped Oriole,Oriolus chinensis,blnori1,0.00,0,398,0,0,0,0,0
+48,Eastern Cattle-egret,Bubulcus coromandus,categr2,0.00,0,12,0,0,0,0,0
+49,Javan Myna,Acridotheres javanicus,whvmyn,0.00,0,65,0,0,0,0,0
+50,Oriental Magpie Robin,Copsychus saularis,magrob,0.00,0,774,0,0,0,0,0
