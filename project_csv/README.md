@@ -8,19 +8,15 @@ This folder contains the core metadata files for the MyGardenBird dataset curati
 Source recording metadata from Xeno-canto (1,123 unique recordings).
 
 **Fields:**
-- `source_id`: Xeno-canto recording ID (e.g., "xc123456")
-- `species_common`: Common species name
-- `species_scientific`: Scientific name (genus + species)
+- `source_id`: Xeno-canto recording ID (numeric, e.g., "1000132" for XC1000132)
+- `species_common`: Common species name (e.g., "White-breasted Waterhen")
+- `species_scientific`: Scientific name in binomial nomenclature (genus + species)
+- `quality_grade`: Xeno-canto quality rating (A = highest, B = good, C = acceptable)
+- `type_label`: Vocalization type (song, call, or other)
+- `latitude`, `longitude`: Geographic coordinates (decimal degrees)
 - `country`: Country of recording
-- `latitude`, `longitude`: Geographic coordinates
-- `quality`: Xeno-canto quality grade (A, B, C, or E)
-- `license`: Creative Commons license URL
-- `recordist`: Name of recordist
-- `vocalization_type`: Song, call, or other
-- `date`: Recording date
-- `time`: Recording time
 
-**Usage:** Referenced by Stage 2 (downloading) and Stage 3-7 (segmentation).
+**Usage:** Referenced by Stage 2 (downloading) and Stage 3-7 (segmentation). The `source_id` serves as the primary key linking recordings to extracted clips.
 
 ### `target_species.csv`
 Master list of 50 Malaysian bird species common in urban and peri-urban environments.
