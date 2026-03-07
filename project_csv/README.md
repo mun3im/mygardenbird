@@ -23,14 +23,17 @@ Source recording metadata from Xeno-canto (1,123 unique recordings).
 **Usage:** Referenced by Stage 2 (downloading) and Stage 3-7 (segmentation).
 
 ### `target_species.csv`
-List of 10 target Malaysian bird species for the dataset.
+Master list of 50 Malaysian bird species common in urban and peri-urban environments.
 
 **Fields:**
-- `common_name`: English common name
-- `scientific_name`: Binomial nomenclature (genus species)
-- `family`: Taxonomic family
+- `Common name`: English common name
+- `Scientific name`: Binomial nomenclature (genus species)
+- `eBird code`: Six-character eBird taxonomy identifier
+- `active`: Toggle for Stage 1 metadata download (yes/no)
 
-**Usage:** Defines the species scope for metadata fetching (Stage 1).
+**Usage:** Defines the species scope for metadata fetching (Stage 1). The `active` column controls which species are processed by the pipeline. Currently, 10 species are set to `active=yes` and constitute the MyGardenBird dataset. The remaining 40 species are candidates for future dataset expansion.
+
+**Note:** All 50 species are commonly reported in the Malaysian Garden Birdwatch survey. Setting `active=yes` for additional species will trigger Stage 1 to download Xeno-canto metadata for those species.
 
 ### `regional_ranking.csv`
 Species selection criteria and regional abundance rankings.
