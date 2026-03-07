@@ -10,10 +10,13 @@ Directory layout produced by the pipeline:
 
   PROJECT_ROOT/
   └── DATASET_NAME/                     (e.g. /Volumes/Evo/MYGARDENBIRD)
-      ├── target_species.csv
-      ├── recordings.csv                Top-level — source recording metadata (shared)
-      ├── per_species_csv/              Stage 1 — XC metadata CSVs
-      │   ├── Species Name.csv
+      ├── project_csv/                  Centralized project metadata
+      │   ├── target_species.csv
+      │   ├── recordings.csv            Source recording metadata (shared)
+      │   ├── regional_ranking.csv      Stage 1 — species ranking
+      │   └── regional_ranking.md
+      ├── per_species_csv/              Stage 1 — XC metadata CSVs (per species)
+      │   ├── Species_Name.csv
       │   └── ...
       ├── per_species_flacs/            Stage 2/3 — downloaded mono FLACs + annotations
       │   ├── Species Name/
@@ -53,6 +56,9 @@ DATASET_NAME = "MYGARDENBIRD"        # Top-level folder inside PROJECT_ROOT
 
 DATASET_ROOT      = Path(PROJECT_ROOT) / DATASET_NAME
 
+# Project-level metadata (centralized)
+PROJECT_CSV       = DATASET_ROOT / "project_csv"
+
 # Source data directories
 PER_SPECIES_CSV   = DATASET_ROOT / "per_species_csv"
 PER_SPECIES_FLACS = DATASET_ROOT / "per_species_flacs"
@@ -65,16 +71,18 @@ MYGARDENBIRD_44K  = DATASET_ROOT / "mygardenbird44khz"
 METADATA_16K      = DATASET_ROOT / "metadata16khz"
 METADATA_44K      = DATASET_ROOT / "metadata44khz"
 
-# Top-level shared metadata
-RECORDINGS_CSV    = DATASET_ROOT / "recordings.csv"
+# Top-level shared metadata (centralized in project_csv/)
+RECORDINGS_CSV    = PROJECT_CSV / "recordings.csv"
+REGIONAL_RANKING_CSV = PROJECT_CSV / "regional_ranking.csv"
+REGIONAL_RANKING_MD  = PROJECT_CSV / "regional_ranking.md"
 
 # Legacy aliases (for backward compatibility with existing scripts)
 EXTRACTED_SEGS    = MYGARDENBIRD_16K
 DATASET_DIR       = METADATA_16K
 SPLITS_DIR        = DATASET_ROOT / "splits"  # Deprecated; splits now live in metadata dirs
 
-# target_species.csv lives in the dataset root, not alongside the scripts
-_SPECIES_CSV = DATASET_ROOT / "target_species.csv"
+# target_species.csv lives in project_csv/ (centralized metadata)
+_SPECIES_CSV = PROJECT_CSV / "target_species.csv"
 
 # =============================================================================
 # SPECIES CATALOGUE

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Stage 1: Fetch Xeno-Canto metadata for all target species and rank by
-ASEAN + South Asia data availability.
+regional data availability.
+
+Regional definition: 60 < longitude < 140 OR ASEAN countries (for missing longitude).
 
 Uses the XC v3 API (API key required).
 Reuses fetch logic from xc_get_metadata_all_seabirds_histo.py.
@@ -29,12 +31,15 @@ RATE_LIMIT_DELAY = 0.15  # seconds between requests
 MAX_RETRIES = 4
 REQUEST_TIMEOUT = 30  # seconds
 
-TARGET_COUNTRIES = [
-    # ASEAN
+# Regional filtering: 60 < longitude < 140 OR ASEAN countries (for missing lon)
+LONGITUDE_MIN = 60.0
+LONGITUDE_MAX = 140.0
+
+ASEAN_COUNTRIES = [
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia",
     "Myanmar", "Philippines", "Singapore", "Thailand", "Vietnam",
-    # South Asia
-    "India", "Bangladesh",
+    # Timor-Leste is ASEAN observer but included for regional completeness
+    "Timor-Leste",
 ]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -246,11 +251,26 @@ def rank_from_csvs(output_dir: str):
         if "file" in df.columns:
             df = df[df["file"].notna() & (df["file"].astype(str).str.strip() != "")]
 
-        # Regional subset
-        if "cnt" in df.columns:
-            regional = df[df["cnt"].isin(TARGET_COUNTRIES)]
-        else:
-            regional = pd.DataFrame()
+        # Regional subset: 60 < longitude < 140 OR ASEAN countries (for missing lon)
+        regional = pd.DataFrame()
+        if not df.empty:
+            # Parse longitude from 'lng' column (string format)
+            df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
+
+            # Condition 1: Valid longitude in range [60, 140]
+            lon_mask = df["_lon"].notna() & (df["_lon"] > LONGITUDE_MIN) & (df["_lon"] < LONGITUDE_MAX)
+
+            # Condition 2: Missing longitude AND country in ASEAN list
+            missing_lon_mask = df["_lon"].isna()
+            if "cnt" in df.columns:
+                asean_mask = df["cnt"].isin(ASEAN_COUNTRIES)
+                fallback_mask = missing_lon_mask & asean_mask
+            else:
+                fallback_mask = pd.Series([False] * len(df), index=df.index)
+
+            # Combine: longitude range OR (missing lon AND ASEAN country)
+            regional = df[lon_mask | fallback_mask].copy()
+            regional.drop(columns=["_lon"], inplace=True)
 
         # Filter by minimum duration
         if "length_seconds" in regional.columns:
@@ -324,7 +344,10 @@ def rank_from_csvs(output_dir: str):
     print(sep)
 
     # ── save ranking CSV ─────────────────────────────────────────────────
-    ranking_path = os.path.join(output_dir, "regional_ranking.csv")
+    # Save to project_csv/ instead of output_dir
+    project_csv_dir = os.path.join(output_dir, "..", "project_csv")
+    os.makedirs(project_csv_dir, exist_ok=True)
+    ranking_path = os.path.join(project_csv_dir, "regional_ranking.csv")
     fieldnames = [
         "rank", "common_name", "scientific_name", "ebird_code",
         "regional_hours", "regional_files", "global_files",
@@ -337,11 +360,12 @@ def rank_from_csvs(output_dir: str):
     print(f"\nRanking saved to: {ranking_path}")
 
     # ── save ranking Markdown ────────────────────────────────────────────
-    md_path = os.path.join(output_dir, "regional_ranking.md")
+    md_path = os.path.join(project_csv_dir, "regional_ranking.md")
     md_lines = [
-        "# Regional Ranking — ASEAN + India/Bangladesh",
+        "# Regional Ranking — Longitude 60-140° OR ASEAN Countries",
         "",
         "Ranked by total downloadable hours (files >= 3s, non-null download URL).",
+        "Regional filter: 60 < longitude < 140 OR ASEAN countries (for missing longitude).",
         "",
         "| Rank | Species | Scientific name | Code | Hours | Files | Global | A | B | C | D | E |",
         "|-----:|---------|-----------------|------|------:|------:|-------:|--:|--:|--:|--:|--:|",

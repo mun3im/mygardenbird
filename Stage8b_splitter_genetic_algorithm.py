@@ -4,7 +4,7 @@ SEAbird Dataset Splitter using Genetic Algorithm Optimization
 
 This script creates optimal train/val/test splits for the SEAbird acoustic dataset
 while ensuring:
-1. Exact target distributions (75%/10%/15%) across all classes
+1. Exact target distributions (80%/10%/10%) across all classes
 2. Source-based separation to prevent data leakage
 3. Class balance preservation
 
@@ -27,6 +27,24 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple
 from tqdm import tqdm
+import time
+
+# 1. Initialize the bar with custom format and color
+pbar = tqdm(
+    total=100,
+    desc="Starting up...",
+    bar_format='{desc} {bar}',  # Removes %, numbers, time, and stats
+    colour='red',               # Sets the bar color to red
+    dynamic_ncols=True          # Adjusts width to fit terminal window
+)
+
+# 2. Start your processing loop
+for i in range(100):
+    time.sleep(0.01) # Simulate work
+    pbar.update(1) # Manually update by 10 units
+
+# 3. Always close the bar when finished
+pbar.close()
 
 from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
 
@@ -43,9 +61,9 @@ except ImportError:
 # CONFIGURATION
 # ============================================================================
 
-TARGET_TRAIN_RATIO = 0.75
+TARGET_TRAIN_RATIO = 0.80
 TARGET_VAL_RATIO = 0.10
-TARGET_TEST_RATIO = 0.15
+TARGET_TEST_RATIO = 0.10
 
 # Genetic Algorithm parameters
 POPULATION_SIZE = 100
@@ -649,9 +667,9 @@ def genetic_algorithm(structure: Dict[str, Dict[str, List[str]]],
 def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
                       assignment: Dict[str, Dict[str, str]],
                       output_path: Path,
-                      train_ratio: float = 0.75,
+                      train_ratio: float = 0.80,
                       val_ratio: float = 0.10,
-                      test_ratio: float = 0.15,
+                      test_ratio: float = 0.10,
                       objective: float = 0,
                       seed: int = 42,
                       verbose: bool = True):
@@ -917,44 +935,38 @@ def create_split_directories(dataset_path: str, splits_dir: str,
 # VISUALIZATION
 # ============================================================================
 
-def print_split_summary(stats: Dict, detailed_stats: Dict):
-    """Print a detailed summary of the splits."""
-    print("\n" + "="*80)
-    print("FINAL RESULTS")
-    print("="*80)
+def print_final_stats(stats: Dict, verbose: bool = True):
+    """Print per-class breakdown in standardised table format (matches Stage8a/8a1)."""
+    if not verbose:
+        return
 
-    for class_name, class_stats in detailed_stats.items():
-        actual = class_stats['actual']
-        target = class_stats['target']
-        total = class_stats['total']
+    classes = sorted(k for k in stats if not k.startswith('_'))
 
-        train_pct = (actual['train'] / total) * 100
-        val_pct = (actual['val'] / total) * 100
-        test_pct = (actual['test'] / total) * 100
+    print()
+    print("Per-Class Breakdown:")
+    print(f"{'Class':<30} {'Train':>8} {'Val':>6} {'Test':>6} {'Total':>7} | {'Sources':>7}")
+    print("-" * 80)
 
-        status = "✓ PERFECT" if class_stats['error'] == 0 else f"Error: {class_stats['error']}"
+    for cls in classes:
+        s = stats[cls]
+        print(f"{cls:<30} {s['train_samples']:8d} {s['val_samples']:6d} "
+              f"{s['test_samples']:6d} {s['total_samples']:7d} | "
+              f"{s['train_sources']:3d}/{s['val_sources']:3d}/{s['test_sources']:3d}")
 
-        print(f"\n{class_name}: {status}")
-        print(f"  Total: {total} samples")
-        print(f"  Train: {actual['train']:3d} (target: {target['train']:3d}, {train_pct:5.2f}%)")
-        print(f"  Val:   {actual['val']:3d} (target: {target['val']:3d}, {val_pct:5.2f}%)")
-        print(f"  Test:  {actual['test']:3d} (target: {target['test']:3d}, {test_pct:5.2f}%)")
+    print("-" * 80)
+    o = stats['_overall']
+    print(f"{'OVERALL':<30} {o['train_samples']:8d} {o['val_samples']:6d} "
+          f"{o['test_samples']:6d} {o['total_samples']:7d} | "
+          f"{o['train_sources']:3d}/{o['val_sources']:3d}/{o['test_sources']:3d}")
 
-    # Overall stats
-    overall = stats['_overall']
-    total = overall['total_samples']
-    train_pct = (overall['train_samples'] / total) * 100
-    val_pct = (overall['val_samples'] / total) * 100
-    test_pct = (overall['test_samples'] / total) * 100
-
-    print(f"\n{'='*80}")
-    print("OVERALL")
-    print(f"{'='*80}")
-    print(f"Total: {total} samples")
-    print(f"Train: {overall['train_samples']} samples ({train_pct:.2f}%)")
-    print(f"Val:   {overall['val_samples']} samples ({val_pct:.2f}%)")
-    print(f"Test:  {overall['test_samples']} samples ({test_pct:.2f}%)")
-    print(f"{'='*80}")
+    total = o['total_samples']
+    cfg = stats['_config']
+    print()
+    print("Actual Ratios:")
+    print(f"  Train: {o['train_samples']/total:.1%} (target: {cfg['train_ratio']:.1%})")
+    print(f"  Val:   {o['val_samples']  /total:.1%} (target: {cfg['val_ratio']  :.1%})")
+    print(f"  Test:  {o['test_samples'] /total:.1%} (target: {cfg['test_ratio'] :.1%})")
+    print()
 
 
 # ============================================================================
@@ -1103,12 +1115,12 @@ Genetic Algorithm:
                             'when not given: "44khz" if the path contains "44", else "16khz".')
     parser.add_argument('--output', type=str, default=None,
                        help='Output directory for split files (default: metadata directory corresponding to --dataset)')
-    parser.add_argument('--train_ratio', type=float, default=0.75,
-                       help='Target train ratio (default: 0.75)')
+    parser.add_argument('--train_ratio', type=float, default=0.80,
+                       help='Target train ratio (default: 0.80)')
     parser.add_argument('--val_ratio', type=float, default=0.10,
                        help='Target validation ratio (default: 0.10)')
-    parser.add_argument('--test_ratio', type=float, default=0.15,
-                       help='Target test ratio (default: 0.15)')
+    parser.add_argument('--test_ratio', type=float, default=0.10,
+                       help='Target test ratio (default: 0.10)')
     parser.add_argument('--create-dirs', action='store_true',
                        help='Create physical split directories with copied files')
     parser.add_argument('--dirs-output', type=str, default='./dataset_splits_ga',
@@ -1328,11 +1340,11 @@ Genetic Algorithm:
 
     # Print summary
     if verbose:
-        print_split_summary(stats, best_stats)
+        print_final_stats(stats)
 
         if best_score == 0:
-            print("\n🎉🎉🎉 PERFECT SPLIT ACHIEVED! 🎉🎉🎉")
-            print("All classes have exactly 75%/10%/15% splits!")
+            print("🎉🎉🎉 PERFECT SPLIT ACHIEVED! 🎉🎉🎉")
+            print("All classes have exactly 80%/10%/10% splits!")
 
     # Verify no leakage
     verify_no_leakage(args.output, verbose=verbose)

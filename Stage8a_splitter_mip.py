@@ -30,7 +30,26 @@ import argparse
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple
+from tqdm import tqdm
 import time
+
+# 1. Initialize the bar with custom format and color
+pbar = tqdm(
+    total=100,
+    desc="Starting up...",
+    bar_format='{desc} {bar}',  # Removes %, numbers, time, and stats
+    colour='red',               # Sets the bar color to red
+    dynamic_ncols=True          # Adjusts width to fit terminal window
+)
+
+# 2. Start your processing loop
+for i in range(100):
+    time.sleep(0.01) # Simulate work
+    pbar.update(1) # Manually update by 10 units
+
+# 3. Always close the bar when finished
+pbar.close()
+
 
 from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
 
@@ -59,9 +78,9 @@ except ImportError:
 # CONFIGURATION
 # ============================================================================
 
-TARGET_TRAIN_RATIO = 0.75
+TARGET_TRAIN_RATIO = 0.80
 TARGET_VAL_RATIO = 0.10
-TARGET_TEST_RATIO = 0.15
+TARGET_TEST_RATIO = 0.10
 
 # MIP Solver parameters
 MIP_TIME_LIMIT = 600  # Maximum time in seconds (10 minutes)
@@ -451,9 +470,9 @@ def print_statistics(stats: Dict, verbose: bool = True):
 def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
                       assignment: Dict[str, Dict[str, str]],
                       output_path: Path,
-                      train_ratio: float = 0.75,
+                      train_ratio: float = 0.80,
                       val_ratio: float = 0.10,
-                      test_ratio: float = 0.15,
+                      test_ratio: float = 0.10,
                       objective: float = 0,
                       seed: int = 42,
                       verbose: bool = True):
@@ -590,12 +609,12 @@ Examples:
                             'when not given: "44khz" if the path contains "44", else "16khz".')
     parser.add_argument('--output', type=str, default=None,
                        help='Output CSV path (default: auto-named splits_mip_<ratios>.csv in metadata directory corresponding to --dataset)')
-    parser.add_argument('--train_ratio', type=float, default=0.75,
-                       help='Target train ratio (default: 0.75)')
+    parser.add_argument('--train_ratio', type=float, default=0.80,
+                       help='Target train ratio (default: 0.80)')
     parser.add_argument('--val_ratio', type=float, default=0.10,
                        help='Target validation ratio (default: 0.10)')
-    parser.add_argument('--test_ratio', type=float, default=0.15,
-                       help='Target test ratio (default: 0.15)')
+    parser.add_argument('--test_ratio', type=float, default=0.10,
+                       help='Target test ratio (default: 0.10)')
     parser.add_argument('--plot', action='store_true',
                        help='Generate visualization plots')
     parser.add_argument('--time-limit', type=int, default=MIP_TIME_LIMIT,

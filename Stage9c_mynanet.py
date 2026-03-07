@@ -41,9 +41,25 @@ Key Improvements over Model 1d:
 Target: >95% INT8 accuracy, <512KB model size
 """
 
-print("\n\n\n")
-for _ in range(3):
-    print(" 🔶 " * 30)
+from tqdm import tqdm
+import time
+
+# 1. Initialize the bar with custom format and color
+pbar = tqdm(
+    total=100,
+    desc="Starting up...",
+    bar_format='{desc} {bar}',  # Removes %, numbers, time, and stats
+    colour='red',               # Sets the bar color to red
+    dynamic_ncols=True          # Adjusts width to fit terminal window
+)
+
+# 2. Start your processing loop
+for i in range(100):
+    time.sleep(0.01) # Simulate work
+    pbar.update(1) # Manually update by 10 units
+
+# 3. Always close the bar when finished
+pbar.close()
 
 import os
 import sys
@@ -172,10 +188,9 @@ CHANNELS_WIDE = [120, 180, 146, 360]  # v1: 6% reduction from v0 [128, 192, 156,
 DEFAULT_FLAT_DIR = "/Volumes/Evo/MYGARDENBIRD/mygardenbird16khz"
 DEFAULT_SPECTROGRAM_DIR = "/Volumes/Evo/MYGARDENBIRD/precompute/spectrograms_16k_mels80"
 
-# SpecAugment settings
-SPECAUGMENT_FREQ_MASK = 8
-SPECAUGMENT_TIME_MASK = 20
-SPECAUGMENT_NUM_MASKS = 2
+# SpecAugment settings (matching Stage9_train_seabird_multifeature.py)
+# Dynamic masking: up to 10% of each dimension
+# Applied with 50% probability per mask type
 
 # Global stats percentiles for normalization
 PERCENTILE_LOW = 2
@@ -511,10 +526,11 @@ class TrainingLogger:
                 f.write(f"  Alpha:                  {config['mixup_alpha']}\n")
                 f.write(f"  Data Multiplier:        2x (original + mixup)\n")
             elif config['augmentation_mode'] == 'specaugment':
-                f.write(f"  Type:                   SpecAugment\n")
-                f.write(f"  Frequency Mask:         {SPECAUGMENT_FREQ_MASK} bins\n")
-                f.write(f"  Time Mask:              {SPECAUGMENT_TIME_MASK} frames\n")
-                f.write(f"  Number of Masks:        {SPECAUGMENT_NUM_MASKS}\n")
+                f.write(f"  Type:                   SpecAugment (matches Stage9)\n")
+                f.write(f"  Frequency Mask:         Dynamic (up to 10% of freq bins)\n")
+                f.write(f"  Time Mask:              Dynamic (up to 10% of time frames)\n")
+                f.write(f"  Probability:            50% per mask type\n")
+                f.write(f"  Mask Value:             Spectrogram minimum\n")
                 f.write(f"  Data Multiplier:        2x (original + augmented)\n")
             else:
                 f.write(f"  Enabled:                False\n")
@@ -919,21 +935,32 @@ def augment_baseline(audio, sr, time_shift_ms=100, pitch_steps=2):
 
 
 def augment_specaugment(spec):
-    """SpecAugment: frequency and time masking on spectrogram"""
+    """SpecAugment: frequency and time masking on spectrogram
+
+    Matches Stage9_train_seabird_multifeature.py implementation:
+    - Dynamic mask width: up to 10% of dimension
+    - Applied with 50% probability per mask type
+    - Uses minimum value of spectrogram for masking
+    """
     spec_aug = spec.copy()
-    freq_bins, time_bins, _ = spec_aug.shape
+    freq_bins, time_bins, channels = spec_aug.shape
 
-    # Apply frequency masks
-    for _ in range(SPECAUGMENT_NUM_MASKS):
-        f_mask = np.random.randint(0, SPECAUGMENT_FREQ_MASK)
-        f0 = np.random.randint(0, freq_bins - f_mask) if f_mask < freq_bins else 0
-        spec_aug[f0:f0 + f_mask, :, 0] = 0
+    # Get minimum value for masking (instead of 0)
+    min_val = np.min(spec_aug)
 
-    # Apply time masks
-    for _ in range(SPECAUGMENT_NUM_MASKS):
-        t_mask = np.random.randint(0, SPECAUGMENT_TIME_MASK)
-        t0 = np.random.randint(0, time_bins - t_mask) if t_mask < time_bins else 0
-        spec_aug[:, t0:t0 + t_mask, 0] = 0
+    # Time masking (50% probability)
+    if np.random.rand() < 0.5:
+        time_mask_width = np.random.randint(0, time_bins // 10)
+        if time_mask_width > 0:
+            start = np.random.randint(0, max(1, time_bins - time_mask_width))
+            spec_aug[:, start:start + time_mask_width, :] = min_val
+
+    # Frequency masking (50% probability)
+    if np.random.rand() < 0.5:
+        freq_mask_width = np.random.randint(0, freq_bins // 10)
+        if freq_mask_width > 0:
+            start = np.random.randint(0, max(1, freq_bins - freq_mask_width))
+            spec_aug[start:start + freq_mask_width, :, :] = min_val
 
     return spec_aug
 
@@ -1294,9 +1321,14 @@ def parse_splits_csv(csv_path):
     for row in reader:
         sp = row['split']
         if 'file_id' in row:
-            # Stage-8 format: XC1002657_2860  ->  xc1002657_2860.wav
+            # Stage-8 format: XC1002657_2860 or xc1002657_2860  ->  xc1002657_2860.wav
             fid = row['file_id']
-            wav = 'xc' + fid[2:] + '.wav'
+            # Handle both uppercase and lowercase format
+            if fid.startswith('XC') or fid.startswith('xc'):
+                wav = fid.lower() + '.wav'
+            else:
+                # Fallback for unexpected format
+                wav = fid + '.wav'
         else:
             wav = row['filename']
         splits[wav] = sp
@@ -1854,6 +1886,8 @@ def main():
     print(f"INT8 Accuracy:           {int8_acc:6.2f}%")
     print(f"Accuracy Drop:           {drop:6.2f}%")
     print(f"Total Execution Time:    {format_time(total_time)}")
+    _gpus = tf.config.list_physical_devices('GPU')
+    print(f"Compute Device:          {'GPU' if _gpus else 'CPU'}")
     print(f"\n✓ Test/Val sets were HELD-OUT during training (no data leakage)")
     print(f"✓ Results are publication-ready and reproducible")
     print(f"{'=' * 70}")
