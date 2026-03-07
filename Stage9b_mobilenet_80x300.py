@@ -89,6 +89,7 @@ N_MELS = 80
 TIME_STEPS = 300
 HOP_LENGTH = TARGET_LENGTH_SAMPLES // TIME_STEPS   # 160
 N_FFT = 2048
+MIXUP_ALPHA = 0.2          # Beta distribution α for mixup augmentation
 
 
 # ── Spectrogram conversion ───────────────────────────────────────────────────
@@ -147,6 +148,33 @@ def audio_to_mel80x300(audio: np.ndarray, label, augment: bool = False):
     # ImageNet preprocessing for MobileNetV3 (maps [0,255] → [-1,1])
     img = mobilenet_v3.preprocess_input(img)
     return img.astype(np.float32), label
+
+
+# ── Mixup augmentation ───────────────────────────────────────────────────────
+
+def mixup_batch(images, labels, num_classes, alpha=MIXUP_ALPHA):
+    """Apply mixup to a batched (images, labels) pair.
+
+    Input labels are integer class indices; outputs are soft one-hot float32
+    vectors compatible with CategoricalCrossentropy.  Lambda is drawn from
+    Beta(α, α) and clamped to ≥ 0.5 so the dominant sample always wins.
+    """
+    def _mix(imgs, lbls):
+        lam = np.float32(np.random.beta(alpha, alpha))
+        lam = max(lam, 1.0 - lam)          # keep dominant sample ≥ 50 %
+        n   = imgs.shape[0]
+        idx = np.random.permutation(n)
+        mixed_imgs = lam * imgs + (1.0 - lam) * imgs[idx]
+        lh = np.eye(num_classes, dtype=np.float32)[lbls]
+        mixed_lbls = lam * lh + (1.0 - lam) * lh[idx]
+        return mixed_imgs.astype(np.float32), mixed_lbls
+
+    mixed_img, mixed_lbl = tf.py_function(
+        _mix, [images, labels], [tf.float32, tf.float32]
+    )
+    mixed_img.set_shape([None, N_MELS, TIME_STEPS, 3])
+    mixed_lbl.set_shape([None, num_classes])
+    return mixed_img, mixed_lbl
 
 
 # ── CSV split helpers (identical to Stage9) ──────────────────────────────────
@@ -227,7 +255,7 @@ def print_per_class_breakdown(csv_path: str, dataset_root: str, classes: list):
 
 # ── Dataset builder ──────────────────────────────────────────────────────────
 
-def build_dataset(root_dir, classes=None, augment=False, shuffle=False,
+def build_dataset(root_dir, classes=None, augmentation='none', shuffle=False,
                   batch_size=32, num_parallel=4, seed=42,
                   csv_path=None, split_name=None):
 
@@ -279,7 +307,7 @@ def build_dataset(root_dir, classes=None, augment=False, shuffle=False,
         label.set_shape([])
 
         spec, label = tf.py_function(
-            lambda a, l: audio_to_mel80x300(a, l, augment=augment),
+            lambda a, l: audio_to_mel80x300(a, l, augment=(augmentation == 'specaugment')),
             [audio, label],
             [tf.float32, tf.int32]
         )
@@ -295,6 +323,10 @@ def build_dataset(root_dir, classes=None, augment=False, shuffle=False,
         ds = ds.shuffle(buffer_size=len(paths), seed=seed, reshuffle_each_iteration=True)
     ds = ds.map(process, num_parallel_calls=num_parallel)
     ds = ds.batch(batch_size)
+    if augmentation == 'mixup':
+        nc = len(classes)
+        ds = ds.map(lambda x, y: mixup_batch(x, y, nc),
+                    num_parallel_calls=tf.data.AUTOTUNE)
     ds = ds.prefetch(tf.data.AUTOTUNE)
     return ds, classes
 
@@ -305,9 +337,12 @@ def create_model(num_classes: int, use_pretrained: bool):
     """
     MobileNetV3-Small with a native (80, 300, 3) input.
 
-    ImageNet weights are compatible: depthwise+pointwise conv kernels
-    are position-agnostic; global average pooling handles the non-square
-    spatial dimensions (5×19 at the deepest feature map).
+    ImageNet weights are loaded as-is (the 'non-square' warning is cosmetic —
+    the conv kernels are position-agnostic and transfer correctly).  Global
+    average pooling handles the non-square spatial map (~5×19 at the deepest
+    feature map) and collapses it to the same flat (576,) vector regardless
+    of input dimensions.  No resizing: the audio time-frequency structure is
+    preserved intact.
     """
     weights = 'imagenet' if use_pretrained else None
 
@@ -508,11 +543,16 @@ def main():
     parser.add_argument('--learning_rate',  type=float, default=0.001)
     parser.add_argument('--num_workers',    type=int,   default=4)
     parser.add_argument('--seed',           type=int,   default=42)
-    parser.add_argument('--use_pretrained', action='store_true')
+    parser.add_argument('--from_scratch', action='store_true',
+                        help='Train from random weights instead of ImageNet pretrained (default: pretrained)')
+    parser.add_argument('--augmentation', default='specaugment',
+                        choices=['none', 'specaugment', 'mixup'],
+                        help='Training augmentation: none | specaugment (default) | mixup (α=0.2)')
     parser.add_argument('--force_cpu',      action='store_true',
                         help='Disable all GPUs (use CPU only)')
     parser.add_argument('--output_dir', default='./results_80x300')
     args = parser.parse_args()
+    args.use_pretrained = not args.from_scratch
 
     # ── Seeds ──────────────────────────────────────────────────────────────
     np.random.seed(args.seed)
@@ -549,38 +589,44 @@ def main():
         print(f"Using CSV splits: {args.splits_csv}")
         print(f"Dataset root:     {args.dataset_root}")
         train_ds, classes = build_dataset(
-            args.dataset_root, augment=True, shuffle=True,
+            args.dataset_root, augmentation=args.augmentation, shuffle=True,
             batch_size=args.batch_size, num_parallel=args.num_workers,
             seed=args.seed, csv_path=args.splits_csv, split_name='train'
         )
         val_ds, _ = build_dataset(
-            args.dataset_root, augment=False, shuffle=False,
+            args.dataset_root, augmentation='none', shuffle=False,
             batch_size=args.batch_size, num_parallel=args.num_workers,
             csv_path=args.splits_csv, split_name='val'
         )
         test_ds, _ = build_dataset(
-            args.dataset_root, augment=False, shuffle=False,
+            args.dataset_root, augmentation='none', shuffle=False,
             batch_size=args.batch_size, num_parallel=args.num_workers,
             csv_path=args.splits_csv, split_name='test'
         )
     else:
         train_ds, classes = build_dataset(
-            args.train_dir, augment=True, shuffle=True,
+            args.train_dir, augmentation=args.augmentation, shuffle=True,
             batch_size=args.batch_size, num_parallel=args.num_workers,
             seed=args.seed
         )
         val_ds, _ = build_dataset(
-            args.val_dir, augment=False, shuffle=False,
+            args.val_dir, augmentation='none', shuffle=False,
             batch_size=args.batch_size, num_parallel=args.num_workers
         )
         test_ds, _ = build_dataset(
-            args.test_dir, augment=False, shuffle=False,
+            args.test_dir, augmentation='none', shuffle=False,
             batch_size=args.batch_size, num_parallel=args.num_workers
         )
 
     print(f"Classes ({len(classes)}): {classes}")
     if args.splits_csv:
         print_per_class_breakdown(args.splits_csv, args.dataset_root, classes)
+
+    # Mixup produces soft one-hot train labels → must use CategoricalCrossentropy.
+    # Val set has hard integer labels, so convert them to one-hot to match.
+    if args.augmentation == 'mixup':
+        _nc = len(classes)
+        val_ds = val_ds.map(lambda x, y: (x, tf.one_hot(tf.cast(y, tf.int32), _nc)))
 
     # ── Model ──────────────────────────────────────────────────────────────
     print("Creating model...")
@@ -603,7 +649,16 @@ def main():
         except AttributeError:
             return optimizers.Adam(learning_rate=lr, clipnorm=1.0)
 
-    loss_fn = losses.SparseCategoricalCrossentropy()
+    if args.augmentation == 'mixup':
+        # Mixup produces soft one-hot labels; use categorical (not sparse) loss.
+        # Smoothing is implicit in the mixed targets so we omit it here.
+        loss_fn = losses.CategoricalCrossentropy()
+    else:
+        try:
+            loss_fn = losses.SparseCategoricalCrossentropy(label_smoothing=0.1)
+        except TypeError:
+            print("Warning: label_smoothing not supported in this TF build; omitting.")
+            loss_fn = losses.SparseCategoricalCrossentropy()
 
     callbacks = [
         keras.callbacks.ReduceLROnPlateau(
@@ -628,8 +683,13 @@ def main():
         model.fit(train_ds, validation_data=val_ds,
                   epochs=warmup_epochs, verbose=1)
 
-        print("Fine-tuning: unfreezing all layers...")
-        base.trainable = True
+        UNFREEZE_TOP_N = 40   # top N base layers to adapt; early edge-detectors stay frozen
+        n_base = len(base.layers)
+        print(f"Fine-tuning: unfreezing top {UNFREEZE_TOP_N}/{n_base} base layers...")
+        for layer in base.layers[:-UNFREEZE_TOP_N]:
+            layer.trainable = False
+        for layer in base.layers[-UNFREEZE_TOP_N:]:
+            layer.trainable = True
         model.compile(optimizer=make_optimizer(1e-4),
                       loss=loss_fn, metrics=['accuracy'])
 
@@ -650,6 +710,14 @@ def main():
 
     # ── Evaluate ───────────────────────────────────────────────────────────
     print("\nEvaluating on test set...")
+    if args.augmentation == 'mixup':
+        # test_ds has hard integer labels; recompile with matching sparse loss.
+        # Weights are unchanged — only the evaluation loss changes.
+        model.compile(
+            optimizer=make_optimizer(1e-4 if args.use_pretrained else args.learning_rate),
+            loss=losses.SparseCategoricalCrossentropy(),
+            metrics=['accuracy']
+        )
     test_loss, test_acc = model.evaluate(test_ds)
 
     y_true, y_pred = [], []
@@ -660,7 +728,8 @@ def main():
 
     # ── Output directory ───────────────────────────────────────────────────
     pretrained_str = "pretrained" if args.use_pretrained else "scratch"
-    run_name = f"mobilenetv3s_mel{N_MELS}x{TIME_STEPS}_{pretrained_str}_seed{args.seed}"
+    aug_str = {'none': 'noaug', 'specaugment': 'specaugment', 'mixup': 'mixup'}[args.augmentation]
+    run_name = f"mobilenetv3s_mel{N_MELS}x{TIME_STEPS}_{pretrained_str}_{aug_str}_seed{args.seed}"
     out_platform = platform.platform().split('-')[0].lower()
     output_dir = Path(f"{args.output_dir}_{out_platform}") / run_name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -708,6 +777,7 @@ def main():
     print(f"Input shape: ({N_MELS}, {TIME_STEPS}, 3)  hop={HOP_LENGTH}")
     print(f"Test Accuracy: {test_acc*100:.2f}%")
     print(f"Training Time: {train_time:.1f} min")
+    print(f"Compute:       {'GPU' if tf.config.list_physical_devices('GPU') else 'CPU'}")
     print(f"Results saved to: {output_dir}")
     print(f"{'='*80}\n")
 
