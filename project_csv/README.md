@@ -1,0 +1,57 @@
+# Project CSV Files
+
+This folder contains the core metadata files for the MyGardenBird dataset curation pipeline.
+
+## Files
+
+### `recordings.csv`
+Source recording metadata from Xeno-canto (1,123 unique recordings).
+
+**Fields:**
+- `source_id`: Xeno-canto recording ID (e.g., "xc123456")
+- `species_common`: Common species name
+- `species_scientific`: Scientific name (genus + species)
+- `country`: Country of recording
+- `latitude`, `longitude`: Geographic coordinates
+- `quality`: Xeno-canto quality grade (A, B, C, or E)
+- `license`: Creative Commons license URL
+- `recordist`: Name of recordist
+- `vocalization_type`: Song, call, or other
+- `date`: Recording date
+- `time`: Recording time
+
+**Usage:** Referenced by Stage 2 (downloading) and Stage 3-7 (segmentation).
+
+### `target_species.csv`
+List of 10 target Malaysian bird species for the dataset.
+
+**Fields:**
+- `common_name`: English common name
+- `scientific_name`: Binomial nomenclature (genus species)
+- `family`: Taxonomic family
+
+**Usage:** Defines the species scope for metadata fetching (Stage 1).
+
+### `regional_ranking.csv`
+Species selection criteria and regional abundance rankings.
+
+**Fields:**
+- `species_common`: Common species name
+- `abundance_rank`: Regional abundance ranking
+- `selection_criteria`: Reason for inclusion (abundance, distinctiveness, etc.)
+- `habitat`: Primary habitat type (urban, peri-urban, forest-edge)
+
+**Usage:** Documents the rationale for species selection in the paper.
+
+## Data Source
+
+All metadata is derived from [Xeno-canto](https://www.xeno-canto.org/), a citizen science bird sound repository. Species selection is based on the MY Garden Birdwatch survey.
+
+## License Compliance
+
+Source recordings carry various Creative Commons licenses:
+- 62.8% CC BY-NC-SA (allows derivatives)
+- 36.5% CC BY-NC-ND (restricts derivatives)
+- 0.7% more permissive (CC BY-SA, CC BY, CC0)
+
+MyGardenBird is released under **CC BY-NC-SA 4.0** to comply with upstream licensing constraints.
