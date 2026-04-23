@@ -45,7 +45,7 @@ Defaults
 --n_mels         224
 --n_fft          2048
 --num_workers    4
---output_dir     ./results
+--output_dir     ./results_16k
 --dataset_root   /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz
 --use_pretrained True (ImageNet pretrained weights)
 
@@ -693,7 +693,7 @@ def main():
     parser.add_argument('--train_dir', default=str(MYGARDENBIRD_16K / 'train'))
     parser.add_argument('--val_dir',   default=str(MYGARDENBIRD_16K / 'val'))
     parser.add_argument('--test_dir',  default=str(MYGARDENBIRD_16K / 'test'))
-    parser.add_argument('--splits_csv', default=None, type=str)
+    parser.add_argument('--splits_csv', default=str(METADATA_16K / 'splits_mip_80_10_10.csv') )
     parser.add_argument('--dataset_root', default=str(MYGARDENBIRD_16K), type=str)
     parser.add_argument('--sample_rate', type=int, default=16000,
                         help='Audio sample rate (auto-detected from first file if not specified)')
@@ -982,7 +982,7 @@ def main():
     plt.ylabel("True")
     plt.title("Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(output_path / "confusion_matrix.png", dpi=150)
+    plt.savefig(output_path / "confusion_matrix.pdf", dpi=150)
     plt.close()
 
     print("\nClassification Report:\n", report)

@@ -8,9 +8,9 @@ Analyzes extracted WAV segments and produces:
                          fields: source_id, species_common, species_scientific,
                                  quality_grade, type_label, latitude, longitude, country
   - clips.csv        — one row per clip (PK: file_id, FK: source_id)
-                         fields: file_id, source_id, clip_index,
+                         fields: file_id, source_id, onset_ms,
                                  sampling_rate, snr_db, rms_db, peak_amplitude, is_clipped
-                         wav_filename is derivable: xc{source_id}_{clip_index}.wav
+                         wav_filename is derivable: xc{source_id}_{onset_ms}.wav
 
 Split assignments are created at Stage 8 as separate split CSV files keyed on file_id.
 
@@ -326,14 +326,14 @@ def generate_clips_csv(results, output_path):
     """
     Write clips.csv — one row per WAV clip (PK: file_id, FK: source_id).
 
-    Columns: file_id, source_id, clip_index,
+    Columns: file_id, source_id, onset_ms,
              sampling_rate, snr_db, rms_db, peak_amplitude, is_clipped
 
-    wav_filename is derivable as: xc{source_id}_{clip_index}.wav
+    wav_filename is derivable as: xc{source_id}_{onset_ms}.wav
     Split assignments are stored in separate Stage 8 split files keyed on file_id.
     """
     fieldnames = [
-        "file_id", "source_id", "clip_index",
+        "file_id", "source_id", "onset_ms",
         "sampling_rate",
         "snr_db", "rms_db", "peak_amplitude", "is_clipped",
     ]
@@ -346,7 +346,7 @@ def generate_clips_csv(results, output_path):
             rows.append({
                 "file_id":        file_id,
                 "source_id":      xc_id,
-                "clip_index":     onset_ms,
+                "onset_ms":     onset_ms,
                 "sampling_rate":  metrics.get("sample_rate", ""),
                 "snr_db":         f"{snr:.2f}" if snr is not None else "",
                 "rms_db":         f"{metrics.get('rms_db', 0.0):.2f}",
@@ -410,8 +410,23 @@ Examples:
     print("=" * 80)
     print("STAGE 7: QUALITY CONTROL & MANIFEST GENERATION")
     print("=" * 80)
-    print(f"Input  : {input_dir}")
-    print(f"Output : {output_dir}")
+    print("WHAT THIS DOES:")
+    print("  - Analyzes audio quality metrics for all extracted clips")
+    print("  - Computes SNR, RMS energy, peak amplitude, clipping detection")
+    print("  - Generates clips.csv (dataset manifest for training)")
+    print("  - Generates qc_report.csv (quality control statistics)")
+    print("  - Generates recordings.csv (source recording metadata)")
+    print()
+    print("INPUT:")
+    print(f"  - WAV segments: {input_dir}/<Species Name>/xc####_####.wav")
+    print(f"  - XC metadata: {args.metadata_dir}/<Scientific_name>.csv")
+    print()
+    print("OUTPUT:")
+    print(f"  - Dataset manifest: {output_dir}/clips.csv")
+    print(f"      (file_id, source_id, onset_ms, sampling_rate, snr_db, ...)")
+    print(f"  - QC report: {output_dir}/qc_report.csv")
+    print(f"  - Source metadata: {recordings_path}")
+    print("=" * 80)
     print()
 
     results = analyze_dataset(input_dir)

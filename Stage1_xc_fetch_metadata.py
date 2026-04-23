@@ -38,7 +38,6 @@ LONGITUDE_MAX = 140.0
 ASEAN_COUNTRIES = [
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia",
     "Myanmar", "Philippines", "Singapore", "Thailand", "Vietnam",
-    # Timor-Leste is ASEAN observer but included for regional completeness
     "Timor-Leste",
 ]
 
@@ -145,17 +144,27 @@ def _fetch_all_records(query_tag: str, api_key: str) -> Optional[List[dict]]:
     return all_records
 
 
-def _save_records_csv(records: List[dict], scientific_name: str, output_dir: str) -> str:
-    """Save records to CSV, dropping sono/osci and adding length_seconds. Returns path.
+def _save_records_csv(records: List[dict], common_name: str, output_dir: str) -> str:
+    """Save REGIONAL-FILTERED records to CSV.
+
+    Applies regional filtering (lon 60-140 OR ASEAN) + duration >=3s before saving.
+    This eliminates duplicate filtering in Stage 2.
 
     An empty records list produces a header-only CSV so the species still
     appears in the ranking with 0 counts.
+
+    Uses English common name for filename (e.g., "Javan_Myna.csv").
     """
+    MIN_LENGTH_S = 3.0
+
     df = pd.DataFrame(records)
+
+    # Drop unnecessary columns
     for col in ("sono", "osci"):
         if col in df.columns:
             df.drop(columns=[col], inplace=True, errors="ignore")
 
+    # Convert length to length_seconds
     if "length" in df.columns:
         df["length_seconds"] = pd.to_numeric(df["length"], errors="coerce")
         mask = df["length_seconds"].isna() & df["length"].notna()
@@ -174,11 +183,39 @@ def _save_records_csv(records: List[dict], scientific_name: str, output_dir: str
                     return None
             df.loc[mask, "length_seconds"] = df.loc[mask, "length"].apply(_convert)
 
+    # APPLY REGIONAL FILTER BEFORE SAVING
+    if not df.empty:
+        # Keep only downloadable rows (non-empty file field)
+        if "file" in df.columns:
+            df = df[df["file"].notna() & (df["file"].astype(str).str.strip() != "")]
+
+        # Regional subset: 60 < longitude < 140 OR ASEAN countries (for missing lon)
+        df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
+
+        # Condition 1: Valid longitude in range [60, 140]
+        lon_mask = df["_lon"].notna() & (df["_lon"] > LONGITUDE_MIN) & (df["_lon"] < LONGITUDE_MAX)
+
+        # Condition 2: Missing longitude AND country in ASEAN list
+        missing_lon_mask = df["_lon"].isna()
+        if "cnt" in df.columns:
+            asean_mask = df["cnt"].isin(ASEAN_COUNTRIES)
+            fallback_mask = missing_lon_mask & asean_mask
+        else:
+            fallback_mask = pd.Series([False] * len(df), index=df.index)
+
+        # Combine: longitude range OR (missing lon AND ASEAN country)
+        df = df[lon_mask | fallback_mask].copy()
+        df.drop(columns=["_lon"], inplace=True)
+
+        # Filter by minimum duration
+        if "length_seconds" in df.columns:
+            df = df[df["length_seconds"].notna() & (df["length_seconds"] >= MIN_LENGTH_S)]
+
     os.makedirs(output_dir, exist_ok=True)
-    safe = scientific_name.replace(" ", "_").replace("/", "_").replace(":", "_")
+    safe = common_name.replace(" ", "_").replace("/", "-").replace(":", "-")
     path = os.path.join(output_dir, f"{safe}.csv")
     df.to_csv(path, index=False)
-    logger.info("Saved %d records → %s", len(df), path)
+    logger.info("Saved %d regional records → %s", len(df), path)
     return path
 
 
@@ -186,7 +223,14 @@ def _save_records_csv(records: List[dict], scientific_name: str, output_dir: str
 
 
 def fetch_metadata(species_list, output_dir: str, api_key: str, dry_run: bool):
-    """Fetch XC metadata for each species in *species_list*."""
+    """Fetch XC metadata for each species in *species_list*.
+
+    Also saves global statistics (before regional filtering) to global_stats.json
+    for use in ranking report.
+    """
+    import json
+    global_stats = {}
+
     for idx, (common, scientific, code) in enumerate(species_list, 1):
         tag = f"[{idx}/{len(species_list)}]"
         if dry_run:
@@ -203,7 +247,43 @@ def fetch_metadata(species_list, output_dir: str, api_key: str, dry_run: bool):
         if not records:
             logger.info("%s  0 records for %s", tag, common)
 
-        _save_records_csv(records, scientific, output_dir)
+        # Calculate global stats BEFORE filtering
+        global_files = len(records)
+        global_hours = 0.0
+        if records and "length" in pd.DataFrame(records).columns:
+            df_global = pd.DataFrame(records)
+            # Convert length to seconds
+            df_global["length_seconds"] = pd.to_numeric(df_global["length"], errors="coerce")
+            mask = df_global["length_seconds"].isna() & df_global["length"].notna()
+            if mask.any():
+                def _convert(ts):
+                    try:
+                        s = str(ts).strip()
+                        if ":" in s:
+                            parts = [float(x) for x in s.split(":")]
+                            if len(parts) == 2:
+                                return int(parts[0]) * 60 + parts[1]
+                            if len(parts) == 3:
+                                return int(parts[0]) * 3600 + int(parts[1]) * 60 + parts[2]
+                        return float(s)
+                    except Exception:
+                        return None
+                df_global.loc[mask, "length_seconds"] = df_global.loc[mask, "length"].apply(_convert)
+            global_hours = df_global["length_seconds"].sum() / 3600.0 if "length_seconds" in df_global.columns else 0.0
+
+        global_stats[common] = {
+            "global_files": global_files,
+            "global_hours": global_hours
+        }
+
+        # Save regional-filtered CSV
+        _save_records_csv(records, common, output_dir)
+
+    # Save global stats to JSON for ranking
+    stats_path = os.path.join(output_dir, "global_stats.json")
+    with open(stats_path, "w") as f:
+        json.dump(global_stats, f, indent=2)
+    logger.info("Saved global stats → %s", stats_path)
 
 
 # ── rank command ─────────────────────────────────────────────────────────────
@@ -212,80 +292,64 @@ def fetch_metadata(species_list, output_dir: str, api_key: str, dry_run: bool):
 def rank_from_csvs(output_dir: str):
     """Read per-species CSVs and rank by total downloadable hours in target region.
 
-    Only counts recordings that:
-      - are in a TARGET_COUNTRIES country
-      - have a non-empty ``file`` field (i.e. not download-blocked)
-      - are >= 3 seconds long
+    CSVs now contain only regional-filtered records (lon 60-140 OR ASEAN, >=3s).
+    Global stats are read from global_stats.json for comparison.
+
     Sorted descending by total regional hours.
     """
-    MIN_LENGTH_S = 3.0
+    import json
+
+    # Load global stats
+    stats_path = os.path.join(output_dir, "global_stats.json")
+    global_stats = {}
+    if os.path.isfile(stats_path):
+        with open(stats_path) as f:
+            global_stats = json.load(f)
+    else:
+        logger.warning("global_stats.json not found — global columns will be empty")
+
     rows = []
     zero_q = {q: 0 for q in VALID_QUALITIES}
 
     for common, scientific, code in SPECIES:
-        safe = scientific.replace(" ", "_").replace("/", "_").replace(":", "_")
+        safe = common.replace(" ", "_").replace("/", "-").replace(":", "-")
         csv_path = os.path.join(output_dir, f"{safe}.csv")
+
+        # Get global stats from JSON
+        species_global = global_stats.get(common, {})
+        global_files = species_global.get("global_files", 0)
+        global_hours = species_global.get("global_hours", 0.0)
 
         if not os.path.isfile(csv_path):
             rows.append({
                 "common_name": common, "scientific_name": scientific,
                 "ebird_code": code, "regional_hours": 0.0,
-                "regional_files": 0, "global_files": 0,
+                "regional_files": 0, "global_files": global_files,
+                "global_hours": global_hours,
                 "q_counts": dict(zero_q),
             })
             continue
 
         try:
-            df = pd.read_csv(csv_path, low_memory=False)
+            regional = pd.read_csv(csv_path, low_memory=False)
         except pd.errors.EmptyDataError:
             rows.append({
                 "common_name": common, "scientific_name": scientific,
                 "ebird_code": code, "regional_hours": 0.0,
-                "regional_files": 0, "global_files": 0,
+                "regional_files": 0, "global_files": global_files,
+                "global_hours": global_hours,
                 "q_counts": dict(zero_q),
             })
             continue
-        global_files = len(df)
 
-        # Keep only downloadable rows (non-empty file field)
-        if "file" in df.columns:
-            df = df[df["file"].notna() & (df["file"].astype(str).str.strip() != "")]
-
-        # Regional subset: 60 < longitude < 140 OR ASEAN countries (for missing lon)
-        regional = pd.DataFrame()
-        if not df.empty:
-            # Parse longitude from 'lng' column (string format)
-            df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
-
-            # Condition 1: Valid longitude in range [60, 140]
-            lon_mask = df["_lon"].notna() & (df["_lon"] > LONGITUDE_MIN) & (df["_lon"] < LONGITUDE_MAX)
-
-            # Condition 2: Missing longitude AND country in ASEAN list
-            missing_lon_mask = df["_lon"].isna()
-            if "cnt" in df.columns:
-                asean_mask = df["cnt"].isin(ASEAN_COUNTRIES)
-                fallback_mask = missing_lon_mask & asean_mask
-            else:
-                fallback_mask = pd.Series([False] * len(df), index=df.index)
-
-            # Combine: longitude range OR (missing lon AND ASEAN country)
-            regional = df[lon_mask | fallback_mask].copy()
-            regional.drop(columns=["_lon"], inplace=True)
-
-        # Filter by minimum duration
-        if "length_seconds" in regional.columns:
-            regional = regional[
-                regional["length_seconds"].notna()
-                & (regional["length_seconds"] >= MIN_LENGTH_S)
-            ]
-
+        # CSV now contains ONLY regional records (already filtered)
         regional_files = len(regional)
         regional_hours = (
             regional["length_seconds"].sum() / 3600.0
-            if "length_seconds" in regional.columns else 0.0
+            if "length_seconds" in regional.columns and not regional.empty else 0.0
         )
 
-        # Quality breakdown (regional, already filtered)
+        # Quality breakdown (from regional CSV)
         q_counts = {}
         if "q" in regional.columns:
             vc = regional["q"].value_counts()
@@ -298,6 +362,7 @@ def rank_from_csvs(output_dir: str):
             "common_name": common, "scientific_name": scientific,
             "ebird_code": code, "regional_hours": regional_hours,
             "regional_files": regional_files, "global_files": global_files,
+            "global_hours": global_hours,
             "q_counts": q_counts,
         })
 
@@ -337,6 +402,7 @@ def rank_from_csvs(output_dir: str):
             "ebird_code": r["ebird_code"],
             "regional_hours": f"{hrs:.2f}",
             "regional_files": nf,
+            "global_hours": f"{r['global_hours']:.2f}",
             "global_files": glb,
             "q_A": qc["A"], "q_B": qc["B"], "q_C": qc["C"],
             "q_D": qc["D"], "q_E": qc["E"],
@@ -350,7 +416,7 @@ def rank_from_csvs(output_dir: str):
     ranking_path = os.path.join(project_csv_dir, "regional_ranking.csv")
     fieldnames = [
         "rank", "common_name", "scientific_name", "ebird_code",
-        "regional_hours", "regional_files", "global_files",
+        "regional_hours", "regional_files", "global_hours", "global_files",
         "q_A", "q_B", "q_C", "q_D", "q_E",
     ]
     with open(ranking_path, "w", newline="") as f:
@@ -367,14 +433,14 @@ def rank_from_csvs(output_dir: str):
         "Ranked by total downloadable hours (files >= 3s, non-null download URL).",
         "Regional filter: 60 < longitude < 140 OR ASEAN countries (for missing longitude).",
         "",
-        "| Rank | Species | Scientific name | Code | Hours | Files | Global | A | B | C | D | E |",
-        "|-----:|---------|-----------------|------|------:|------:|-------:|--:|--:|--:|--:|--:|",
+        "| Rank | Species | Scientific name | Code | Reg Hours | Reg Files | Global Hours | Global Files | A | B | C | D | E |",
+        "|-----:|---------|-----------------|------|----------:|----------:|-------------:|-------------:|--:|--:|--:|--:|--:|",
     ]
     for r in csv_rows:
         md_lines.append(
             f"| {r['rank']} | {r['common_name']} | {r['scientific_name']} "
             f"| {r['ebird_code']} | {r['regional_hours']} | {r['regional_files']} "
-            f"| {r['global_files']} | {r['q_A']} | {r['q_B']} | {r['q_C']} "
+            f"| {r['global_hours']} | {r['global_files']} | {r['q_A']} | {r['q_B']} | {r['q_C']} "
             f"| {r['q_D']} | {r['q_E']} |"
         )
     md_lines.append("")
@@ -434,6 +500,46 @@ def main():
                 sys.exit(1)
 
     output_dir = args.output_dir
+
+    # Print startup information
+    print("=" * 80)
+    print("STAGE 1: FETCH XENO-CANTO METADATA")
+    print("=" * 80)
+    print("WHAT THIS DOES:")
+    print("  - Fetches recording metadata from Xeno-Canto API for target species")
+    print("  - Filters recordings by region (longitude 60-140° OR ASEAN countries)")
+    print("  - Filters by duration (≥3 seconds) and downloadability")
+    print("  - Saves ONLY regional-filtered records to per-species CSV files")
+    print("  - Saves global stats (before filtering) to global_stats.json")
+    print("  - Generates regional ranking with global comparison")
+    print()
+    print("NOTE:")
+    print("  - Stage 1 fetches metadata for ALL species (ignores 'active' column)")
+    print("  - Stage 2 uses 'active' column to decide which species to download")
+    from pathlib import Path
+    project_csv_dir = Path(output_dir).parent / "project_csv"
+    print(f"  - To shortlist species: Edit {project_csv_dir}/target_species.csv")
+    print(f"      Set active=yes for species you want to download in Stage 2")
+    print()
+    print("INPUT:")
+    print(f"  - Species list: {len(species_list)} species")
+    if len(species_list) <= 5:
+        for common, sci, code in species_list:
+            print(f"      • {common} ({sci})")
+    else:
+        print(f"      • {species_list[0][0]} ({species_list[0][1]})")
+        print(f"      • {species_list[1][0]} ({species_list[1][1]})")
+        print(f"      ... and {len(species_list) - 2} more")
+    print()
+    print("OUTPUT:")
+    print(f"  - Per-species CSVs (regional-filtered only): {output_dir}/")
+    print(f"      Example: {output_dir}/Javan_Myna.csv (uses English names)")
+    print(f"  - Global stats (before filtering): {output_dir}/global_stats.json")
+    print(f"  - Regional ranking: {project_csv_dir}/regional_ranking.csv")
+    print(f"      (includes both regional and global hours/files for transparency)")
+    print(f"  - Regional ranking: {project_csv_dir}/regional_ranking.md")
+    print("=" * 80)
+    print()
 
     if not args.rank_only:
         api_key = _load_api_key(args.api_key)

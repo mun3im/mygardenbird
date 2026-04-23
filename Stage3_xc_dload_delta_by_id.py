@@ -197,13 +197,37 @@ def main():
             sys.exit(1)
         english, scientific, ebird_code = result
         save_folder = os.path.join(args.output_dir, folder_name(english), args.quality)
-        print(f"Species: {english} ({scientific})")
-        print(f"Saving to: {save_folder}")
     else:
         save_folder = args.output_dir
 
+    # Print startup information
+    print("=" * 80)
+    print("STAGE 3: DOWNLOAD SPECIFIC RECORDINGS BY ID (DELTA DOWNLOAD)")
+    print("=" * 80)
+    print("WHAT THIS DOES:")
+    print("  - Downloads specific XC recordings by ID number")
+    print("  - Useful for filling gaps or adding specific recordings")
+    print("  - Converts MP3 to mono FLAC (preserving original sample rate)")
+    print("  - Skips recordings <3 seconds")
+    print()
+    print("INPUT:")
+    if args.id_file:
+        print(f"  - ID file: {args.id_file}")
+    else:
+        print(f"  - IDs from command line: {len(xc_ids)} ID(s)")
+    if args.species:
+        print(f"  - Species: {english} ({scientific})")
+        print(f"  - Quality: {args.quality}")
+    print()
+    print("OUTPUT:")
+    print(f"  - FLAC files: {save_folder}/xc####.flac")
+    if args.species:
+        print(f"      Full path: {save_folder}/")
+    print("=" * 80)
+    print()
+
     if args.dry_run:
-        print(f"\n[DRY RUN] No files will be downloaded.\n")
+        print(f"[DRY RUN] No files will be downloaded.\n")
 
     print(f"Processing {len(xc_ids)} ID(s)...\n")
 
