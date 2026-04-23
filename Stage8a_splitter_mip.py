@@ -478,9 +478,9 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
                       verbose: bool = True):
     """Write a CSV with columns: file_id,split.
 
-    file_id is the normalised clip primary key: XC{source_id}_{clip_index}
+    file_id is the normalised clip primary key: XC{source_id}_{onset_ms}
     (matches the file_id column in clips.csv produced by Stage 7).
-    wav_filename is derivable as: xc{source_id}_{clip_index}.wav
+    wav_filename is derivable as: xc{source_id}_{onset_ms}.wav
     """
     if verbose:
         print(f"📄 Writing splits CSV: {output_path}")
@@ -651,7 +651,24 @@ Examples:
 
     if verbose:
         print("\n" + "=" * 80)
-        print("SEAbird Dataset Splitter - Mixed Integer Programming")
+        print("STAGE 8a: DATASET SPLITTING - MIXED INTEGER PROGRAMMING (MIP)")
+        print("=" * 80)
+        print("WHAT THIS DOES:")
+        print("  - Creates optimal train/val/test splits using MIP optimization")
+        print("  - Ensures source-based separation (prevents data leakage)")
+        print("  - Achieves exact target ratios across all classes")
+        print("  - Deterministic and provably optimal (no random seeds needed)")
+        print()
+        print("INPUT:")
+        print(f"  - Dataset directory: {args.dataset}/<Species Name>/*.wav")
+        print(f"  - Target ratios: train={args.train_ratio:.0%}, val={args.val_ratio:.0%}, test={args.test_ratio:.0%}")
+        print()
+        print("OUTPUT:")
+        print(f"  - Split assignments CSV: {args.output}")
+        print("      Format: filename,split")
+        print("      Header comment includes ratios and objective value")
+        if args.plot:
+            print(f"  - Visualization plot: {Path(args.output).parent}/split_distribution_mip.png")
         print("=" * 80)
         print()
 

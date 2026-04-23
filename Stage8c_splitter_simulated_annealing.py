@@ -459,9 +459,9 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
                       verbose: bool = True):
     """Write a CSV with columns: file_id,split.
 
-    file_id is the normalised clip primary key: XC{source_id}_{clip_index}
+    file_id is the normalised clip primary key: XC{source_id}_{onset_ms}
     (matches the file_id column in clips.csv produced by Stage 7).
-    wav_filename is derivable as: xc{source_id}_{clip_index}.wav
+    wav_filename is derivable as: xc{source_id}_{onset_ms}.wav
     """
     if verbose:
         print(f"📄 Writing splits CSV: {output_path}")
@@ -1071,8 +1071,25 @@ Simulated Annealing:
     # Normal mode: Run optimization
     if verbose:
         print("="*80)
-        print("MODE: Optimize splits using Simulated Annealing")
+        print("STAGE 8c: DATASET SPLITTING - SIMULATED ANNEALING (SA)")
         print("="*80)
+        print("WHAT THIS DOES:")
+        print("  - Creates optimal train/val/test splits using simulated annealing")
+        print("  - Ensures source-based separation (prevents data leakage)")
+        print("  - Achieves near-perfect target ratios through stochastic search")
+        print("  - Slowest algorithm (~15-20 min) but still finds optimal solutions")
+        print()
+        print("INPUT:")
+        print(f"  - Dataset directory: {args.dataset}/<Species Name>/*.wav")
+        print(f"  - Target ratios: train={args.train_ratio:.0%}, val={args.val_ratio:.0%}, test={args.test_ratio:.0%}")
+        print()
+        print("OUTPUT:")
+        print(f"  - Split assignments CSV: {Path(args.output) / _auto_csv}")
+        print("      Format: file_id,split")
+        print("      Header comment includes ratios, seed, and objective value")
+        if args.plot:
+            print(f"  - Optimization plot: {Path(args.output) / Path(args.plot_output).name}")
+        print("=" * 80)
         print()
 
     # Load dataset

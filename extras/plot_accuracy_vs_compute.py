@@ -12,18 +12,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
-OUT_DIR = Path("/Users/mun3im/Dropbox/Paper Scientific Data/fig")
+OUT_DIR = Path("/home/muneim/Dropbox/Paper Scientific Data/fig")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-# mean ± sd from Table 5 (16 kHz, SpecAugment, 3 seeds)
+# mean ± sd from Table 6 (16 kHz, Mixup alpha=0.2, 3 seeds)
 models = [
     "MobileNetV3-Small",
     "EfficientNet-B0",
     "ResNet-50",
 ]
-means  = np.array([94.61, 96.94, 95.06])
-stds   = np.array([ 0.51,  1.11,  0.67])
+means  = np.array([93.50, 97.67, 97.33])
+stds   = np.array([ 0.93,  0.50,  0.44])
 mflops = np.array([  56,    390,  4100])   # from keras/torchinfo @ 224×224 input
 
 colours = ["#E69F00", "#56B4E9", "#CC79A7"]   # Okabe-Ito (yellow, blue, pink)
@@ -67,7 +67,7 @@ ax.set_xlabel("Computational cost (MFLOPs, log scale)", fontsize=9,
               fontfamily="serif")
 ax.set_ylabel("Mean test accuracy (%)", fontsize=9, fontfamily="serif")
 ax.set_xlim(20, 12000)
-ax.set_ylim(90, 97)
+ax.set_ylim(91, 99)
 ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
 ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.5))
 ax.xaxis.set_major_formatter(ticker.FuncFormatter(
@@ -80,7 +80,7 @@ for label in ax.get_xticklabels() + ax.get_yticklabels():
 
 ax.set_title(
     "Accuracy vs. computational cost\n"
-    "(16\u202fkHz, Mel, SpecAugment, mean\u202f\u00b1\u202fs.d., 3 seeds)",
+    "(16\u202fkHz, Mel, Mixup \u03b1=0.2, mean\u202f\u00b1\u202fs.d., 3 seeds)",
     fontsize=9, fontfamily="serif", pad=8,
 )
 

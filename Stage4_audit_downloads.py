@@ -172,6 +172,26 @@ def main():
     if output_path is None:
         output_path = os.path.join(input_dir, "stage4_eda_report.csv")
 
+    # Print startup information
+    print("=" * 80)
+    print("STAGE 4: AUDIT DOWNLOADED RECORDINGS")
+    print("=" * 80)
+    print("WHAT THIS DOES:")
+    print("  - Scans downloaded FLAC files for each species and quality")
+    print("  - Checks completeness against Stage1 metadata")
+    print("  - Identifies tiny/corrupted files")
+    print("  - Optionally extracts total duration per species")
+    print()
+    print("INPUT:")
+    print(f"  - Downloaded FLACs: {input_dir}/<Species Name>/<Quality>/")
+    print(f"  - Stage1 metadata: {metadata_dir}/<Scientific_name>.csv")
+    print()
+    print("OUTPUT:")
+    print(f"  - Audit report CSV: {output_path}")
+    print(f"  - Terminal summary table")
+    print("=" * 80)
+    print()
+
     # Scan downloads
     print(f"Scanning downloads in: {input_dir}")
     downloads = scan_downloads(input_dir)

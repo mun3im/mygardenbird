@@ -10,24 +10,20 @@ import requests
 
 from config import ACTIVE_SPECIES, VALID_QUALITIES, folder_name, resolve_species, PER_SPECIES_FLACS, PER_SPECIES_CSV
 
-# Regional filtering constants (must match Stage1)
-LONGITUDE_MIN = 60.0
-LONGITUDE_MAX = 140.0
-ASEAN_COUNTRIES = [
-    "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia",
-    "Myanmar", "Philippines", "Singapore", "Thailand", "Vietnam",
-    "Timor-Leste",
-]
-MIN_DURATION_S = 3.0   # clips shorter than this are skipped
+# Stage 1 already applies regional filtering (lon 60-140 OR ASEAN) and duration filtering (>=3s)
+# Stage 2 just downloads what's in the CSV
+MIN_DURATION_S = 3.0   # Still used in _mp3_to_mono_flac for safety check
 
 
-def get_regional_xc_ids(scientific_name, quality):
-    """Load regional XC IDs from Stage1 CSV for given species and quality.
+def get_xc_ids_from_csv(common_name, quality):
+    """Load XC IDs from Stage1 CSV for given species and quality.
 
-    Returns a set of XC IDs that meet regional criteria, or None if CSV doesn't exist.
-    Regional filter: 60 < longitude < 140 OR ASEAN countries (for missing lon).
+    Stage 1 CSVs now contain ONLY regional-filtered records (lon 60-140 OR ASEAN, >=3s).
+    No additional filtering needed - just read and filter by quality.
+
+    Uses English common name to match Stage 1 CSV naming convention.
     """
-    safe = scientific_name.replace(" ", "_").replace("/", "_").replace(":", "_")
+    safe = common_name.replace(" ", "_").replace("/", "-").replace(":", "-")
     csv_path = os.path.join(PER_SPECIES_CSV, f"{safe}.csv")
 
     if not os.path.isfile(csv_path):
@@ -41,47 +37,17 @@ def get_regional_xc_ids(scientific_name, quality):
         print(f"    WARNING: Empty or missing CSV: {csv_path}")
         return None
 
-    # Keep only downloadable rows (non-empty file field)
-    if "file" in df.columns:
-        df = df[df["file"].notna() & (df["file"].astype(str).str.strip() != "")]
-
-    # Regional subset: 60 < longitude < 140 OR ASEAN countries (for missing lon)
-    regional = pd.DataFrame()
-    if not df.empty:
-        # Parse longitude from 'lng' column
-        df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
-
-        # Condition 1: Valid longitude in range [60, 140]
-        lon_mask = df["_lon"].notna() & (df["_lon"] > LONGITUDE_MIN) & (df["_lon"] < LONGITUDE_MAX)
-
-        # Condition 2: Missing longitude AND country in ASEAN list
-        missing_lon_mask = df["_lon"].isna()
-        if "cnt" in df.columns:
-            asean_mask = df["cnt"].isin(ASEAN_COUNTRIES)
-            fallback_mask = missing_lon_mask & asean_mask
-        else:
-            fallback_mask = pd.Series([False] * len(df), index=df.index)
-
-        # Combine: longitude range OR (missing lon AND ASEAN country)
-        regional = df[lon_mask | fallback_mask].copy()
-
-    # Filter by minimum duration
-    if "length_seconds" in regional.columns:
-        regional = regional[
-            regional["length_seconds"].notna()
-            & (regional["length_seconds"] >= MIN_DURATION_S)
-        ]
-
-    # Filter by quality
-    if "q" in regional.columns:
-        regional = regional[regional["q"] == quality]
+    # CSV already contains regional-filtered records
+    # Only filter by quality if specified
+    if "q" in df.columns and quality:
+        df = df[df["q"] == quality]
 
     # Extract XC IDs
-    if "id" not in regional.columns:
+    if "id" not in df.columns:
         print(f"    WARNING: No 'id' column in {csv_path}")
         return set()
 
-    xc_ids = set(str(xid) for xid in regional["id"].dropna())
+    xc_ids = set(str(xid) for xid in df["id"].dropna())
     return xc_ids
 
 
@@ -204,31 +170,29 @@ def download_recording(xc_id, save_folder):
 
 
 def download_species(scientific_name, english_name, ebird_code, qualities, output_dir, dry_run, api_key=None):
-    """Download regional recordings for one species across the given quality levels.
+    """Download recordings for one species across the given quality levels.
 
-    Only downloads recordings that meet Stage1 regional criteria:
-      - 60 < longitude < 140 OR ASEAN countries (for missing longitude)
-      - Duration >= 3 seconds
-      - Non-empty download URL
+    Reads XC IDs from Stage 1 CSVs (already filtered for regional + duration criteria).
+    No additional filtering needed - just download what's in the CSV.
     """
     species_folder = folder_name(english_name)
     counts = {}
     for quality in qualities:
         save_folder = os.path.join(output_dir, species_folder, quality)
 
-        # Load regional XC IDs from Stage1 metadata
-        regional_ids = get_regional_xc_ids(scientific_name, quality)
-        if regional_ids is None:
+        # Load XC IDs from Stage1 metadata (already regional-filtered)
+        xc_ids = get_xc_ids_from_csv(english_name, quality)
+        if xc_ids is None:
             print(f"    Skipping quality {quality}: no Stage1 metadata available")
             counts[quality] = 0
             continue
 
-        if not regional_ids:
-            print(f"  Quality {quality}: 0 regional recordings")
+        if not xc_ids:
+            print(f"  Quality {quality}: 0 recordings to download")
             counts[quality] = 0
             continue
 
-        print(f"  Quality {quality}: {len(regional_ids)} regional recordings")
+        print(f"  Quality {quality}: {len(xc_ids)} recordings to download")
 
         page = 1
         more = True
@@ -244,8 +208,8 @@ def download_species(scientific_name, english_name, ebird_code, qualities, outpu
                 if not xc_id:
                     continue
 
-                # Regional filter: only download IDs from Stage1 CSV
-                if str(xc_id) not in regional_ids:
+                # Only download IDs from Stage1 CSV (already regional-filtered)
+                if str(xc_id) not in xc_ids:
                     continue
 
                 if dry_run:
@@ -264,7 +228,7 @@ def download_species(scientific_name, english_name, ebird_code, qualities, outpu
     total = sum(counts.values())
     breakdown = ", ".join(f"{c} {q}" for q, c in counts.items() if c > 0)
     action = "Found" if dry_run else "Downloaded"
-    print(f"  {action} {total} regional files for {english_name} ({breakdown})")
+    print(f"  {action} {total} files for {english_name} ({breakdown})")
     return counts
 
 
@@ -359,6 +323,43 @@ def main():
 
     qualities = args.quality
     output_dir = args.output_dir
+
+    # Print startup information
+    print("=" * 80)
+    print("STAGE 2: DOWNLOAD XENO-CANTO RECORDINGS")
+    print("=" * 80)
+    print("WHAT THIS DOES:")
+    print("  - Downloads FLAC recordings from Xeno-Canto for active species")
+    print("  - Reads pre-filtered XC IDs from Stage 1 CSVs (already regional + >=3s)")
+    print("  - Converts MP3 to mono FLAC (preserving original sample rate)")
+    print("  - NO filtering needed - Stage 1 already did regional/duration filtering")
+    print()
+    print("NOTE:")
+    print("  - Only downloads species with active=yes in target_species.csv")
+    from pathlib import Path
+    project_csv_dir = Path(PER_SPECIES_CSV).parent / "project_csv"
+    print(f"  - To shortlist species: Edit {project_csv_dir}/target_species.csv")
+    print(f"      Set active=yes for species you want (e.g., 12 out of 50)")
+    print(f"      Set active=no for species you want to skip")
+    print()
+    print("INPUT:")
+    print(f"  - Species metadata: {PER_SPECIES_CSV}/<English_name>.csv")
+    print(f"      (Generated by Stage 1 using English names)")
+    print(f"  - Species to download: {len(species_list)} species (active=yes)")
+    if len(species_list) <= 5:
+        for common, sci, code in species_list:
+            print(f"      • {common} ({sci})")
+    else:
+        print(f"      • {species_list[0][0]} ({species_list[0][1]})")
+        print(f"      • {species_list[1][0]} ({species_list[1][1]})")
+        print(f"      ... and {len(species_list) - 2} more")
+    print(f"  - Quality grades: {', '.join(qualities)}")
+    print()
+    print("OUTPUT:")
+    print(f"  - FLAC files: {output_dir}/<Species Name>/<Quality>/xc####.flac")
+    print(f"      Example: {output_dir}/Javan Myna/A/xc123456.flac")
+    print("=" * 80)
+    print()
 
     if args.dry_run:
         print("[DRY RUN] No files will be downloaded.\n")

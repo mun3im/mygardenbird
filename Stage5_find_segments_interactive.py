@@ -633,6 +633,35 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
+    # Print startup information
+    print("=" * 80)
+    print("STAGE 5: INTERACTIVE SEGMENT ANNOTATION")
+    print("=" * 80)
+    print("WHAT THIS DOES:")
+    print("  - Opens interactive GUI to annotate bird vocalizations in recordings")
+    print("  - Auto-detects segments using spectrogram blob detection")
+    print("  - Allows manual review, adjustment, and deletion of segments")
+    print("  - Saves annotations as .txt files alongside FLAC files")
+    print()
+    print("INPUT:")
+    print("  - FLAC recordings: <Species Name>/<Quality>/xc####.flac")
+    print(f"      Default directory: {PER_SPECIES_FLACS}/")
+    print()
+    print("OUTPUT:")
+    print("  - Annotation .txt files: <Species Name>/<Quality>/xc####.txt")
+    print("      Format: start_time\\tend_time\\tlabel (tab-separated)")
+    print("      Labels: {song, call, other, noise, birdsong}")
+    print()
+    print("USAGE:")
+    print("  - Select an audio file in the file dialog")
+    print("  - Review auto-detected segments (blue rectangles)")
+    print("  - Drag segments to adjust timing")
+    print("  - Click 'Delete Selected' to remove poor segments")
+    print("  - Adjust threshold/gap sliders if needed")
+    print("  - Click 'Save' when done (max 10 segments)")
+    print("=" * 80)
+    print()
+
     _STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                ".stage5_state.json")
 
