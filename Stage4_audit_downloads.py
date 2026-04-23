@@ -120,7 +120,7 @@ def format_duration(seconds):
 def print_table(rows):
     """Print a formatted summary table with duration per quality."""
     # Header - always show duration (removed Tiny column)
-    hdr = f"{'Species':<25} {'Qual':>4} {'Files':>6} {'Avail':>6} {'Done%':>6} {'Duration':>12}"
+    hdr = f"{'Species':<35} {'Qual':>4} {'Files':>6} {'Avail':>6} {'Done%':>6} {'Duration':>12}"
     sep = "-" * len(hdr)
 
     print(sep)
@@ -130,7 +130,7 @@ def print_table(rows):
     total_tiny = 0
     for row in rows:
         line = (
-            f"{row['species']:<25} {row['quality']:>4} "
+            f"{row['species']:<35} {row['quality']:>4} "
             f"{row['files']:>6} {row['avail']:>6} "
             f"{row['pct']:>6} {row['duration']:>12}"
         )
