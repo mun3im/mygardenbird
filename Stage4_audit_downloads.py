@@ -98,27 +98,44 @@ def get_total_duration(file_list):
     return total
 
 
-def print_table(rows, show_durations):
-    """Print a formatted summary table."""
-    # Header
-    hdr = f"{'Species':<25} {'Qual':>4} {'Files':>6} {'Avail':>6} {'Done%':>6} {'Tiny':>5}"
-    if show_durations:
-        hdr += f" {'Duration':>10}"
+def format_duration(seconds):
+    """Format duration as hours:min or min:sec for readability."""
+    if seconds == 0:
+        return "-"
+
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    if hours > 0:
+        return f"{hours}h{minutes:02d}m"
+    elif minutes > 0:
+        return f"{minutes}m{secs:02d}s"
+    else:
+        return f"{secs}s"
+
+
+def print_table(rows):
+    """Print a formatted summary table with duration per quality."""
+    # Header - always show duration (removed Tiny column)
+    hdr = f"{'Species':<25} {'Qual':>4} {'Files':>6} {'Avail':>6} {'Done%':>6} {'Duration':>12}"
     sep = "-" * len(hdr)
 
     print(sep)
     print(hdr)
     print(sep)
 
+    total_tiny = 0
     for row in rows:
         line = (
             f"{row['species']:<25} {row['quality']:>4} "
             f"{row['files']:>6} {row['avail']:>6} "
-            f"{row['pct']:>6} {row['tiny']:>5}"
+            f"{row['pct']:>6} {row['duration']:>12}"
         )
-        if show_durations:
-            line += f" {row['duration']:>10}"
         print(line)
+
+        # Track tiny files for warning
+        total_tiny += row.get('tiny', 0)
 
         # Print separator after last quality of each species
         if row.get("species_end"):
@@ -126,6 +143,11 @@ def print_table(rows, show_durations):
 
     # Grand total
     print(sep)
+
+    # Warning if any tiny files found (sanity check)
+    if total_tiny > 0:
+        print(f"\n⚠️  WARNING: Found {total_tiny} files <1KB (possible corruption)")
+        print("   This should be 0 if Stage 1 filtering (>=3s) worked correctly.")
 
 
 def main():
@@ -149,15 +171,15 @@ def main():
         help="CSV output path. Default: {input_dir}/stage3_eda_report.csv.",
     )
     parser.add_argument(
-        "--durations",
+        "--skip-durations",
         action="store_true",
-        help="Extract audio durations via ffprobe (slower).",
+        help="Skip duration extraction (faster but less useful).",
     )
     parser.add_argument(
         "--min-size",
         type=int,
         default=1024,
-        help="Minimum file size in bytes to consider usable. Default: 1024.",
+        help="Minimum file size in bytes for tiny file detection. Default: 1024.",
     )
     args = parser.parse_args()
 
@@ -179,8 +201,8 @@ def main():
     print("WHAT THIS DOES:")
     print("  - Scans downloaded FLAC files for each species and quality")
     print("  - Checks completeness against Stage1 metadata")
-    print("  - Identifies tiny/corrupted files")
-    print("  - Optionally extracts total duration per species")
+    print("  - Extracts total duration per quality (helps assess sample size)")
+    print("  - Checks for tiny/corrupted files (should be 0 after Stage1 filtering)")
     print()
     print("INPUT:")
     print(f"  - Downloaded FLACs: {input_dir}/<Species Name>/<Quality>/")
@@ -203,13 +225,18 @@ def main():
     else:
         print(f"Loaded metadata from: {metadata_dir}")
 
-    if args.durations:
+    # Duration extraction is on by default (can be disabled with --skip-durations)
+    extract_durations = not args.skip_durations
+    if extract_durations:
         # Check ffprobe availability
         try:
             subprocess.run(["ffprobe", "-version"], capture_output=True, timeout=5)
+            print("Duration extraction: ENABLED (use --skip-durations to disable)")
         except FileNotFoundError:
             print("Warning: ffprobe not found. Durations will show N/A.")
-            args.durations = False
+            extract_durations = False
+    else:
+        print("Duration extraction: DISABLED")
 
     print()
 
@@ -254,11 +281,13 @@ def main():
 
             duration = 0.0
             dur_str = ""
-            if args.durations and file_list:
+            if extract_durations and file_list:
                 duration = get_total_duration(file_list)
-                dur_str = f"{duration:.1f}s"
-            elif args.durations:
+                dur_str = format_duration(duration)
+            elif extract_durations:
                 dur_str = "-"
+            else:
+                dur_str = "N/A"
 
             is_last = qi == len(qualities_present) - 1
 
@@ -268,7 +297,7 @@ def main():
                 "files": str(n_files),
                 "avail": avail_str,
                 "pct": pct,
-                "tiny": str(tiny),
+                "tiny": tiny,
                 "duration": dur_str,
                 "species_end": is_last,
             })
@@ -281,7 +310,7 @@ def main():
                 "files_available": n_avail if n_avail is not None else "",
                 "completeness_pct": f"{pct_val:.1f}" if isinstance(pct_val, float) else "",
                 "tiny_files": tiny,
-                "total_duration_s": f"{duration:.1f}" if args.durations else "",
+                "total_duration_s": f"{duration:.1f}" if extract_durations else "",
             })
 
             total_files += n_files
@@ -297,7 +326,7 @@ def main():
         total_pct = "N/A"
         total_pct_val = ""
 
-    total_dur_str = f"{total_duration:.1f}s" if args.durations else ""
+    total_dur_str = format_duration(total_duration) if extract_durations else "N/A"
 
     table_rows.append({
         "species": "TOTAL",
@@ -305,7 +334,7 @@ def main():
         "files": str(total_files),
         "avail": str(total_avail) if metadata else "N/A",
         "pct": total_pct,
-        "tiny": str(total_tiny),
+        "tiny": total_tiny,
         "duration": total_dur_str,
     })
 
@@ -317,11 +346,11 @@ def main():
         "files_available": total_avail if metadata else "",
         "completeness_pct": total_pct_val,
         "tiny_files": total_tiny,
-        "total_duration_s": f"{total_duration:.1f}" if args.durations else "",
+        "total_duration_s": f"{total_duration:.1f}" if extract_durations else "",
     })
 
     # Print table
-    print_table(table_rows, args.durations)
+    print_table(table_rows)
 
     # Save CSV
     fieldnames = [
