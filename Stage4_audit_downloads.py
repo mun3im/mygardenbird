@@ -5,6 +5,8 @@ import subprocess
 import sys
 from collections import defaultdict
 
+from tqdm import tqdm
+
 from config import ACTIVE_SPECIES, VALID_QUALITIES, folder_name, PER_SPECIES_FLACS, PER_SPECIES_CSV
 
 # Derived lookups
@@ -21,7 +23,7 @@ def scan_downloads(input_dir):
     Only considers active species and valid quality letters.
     """
     results = {}
-    for english, _, _ in ACTIVE_SPECIES:
+    for english, _, _ in tqdm(ACTIVE_SPECIES, desc="Scanning downloads", unit="species"):
         results[english] = {}
         species_dir = os.path.join(input_dir, folder_name(english))
         if not os.path.isdir(species_dir):
@@ -76,10 +78,10 @@ def count_tiny_files(file_list, min_size):
     return sum(1 for f in file_list if os.path.getsize(f) < min_size)
 
 
-def get_total_duration(file_list):
+def get_total_duration(file_list, desc="Processing"):
     """Get total duration in seconds for a list of audio files using ffprobe."""
     total = 0.0
-    for fpath in file_list:
+    for fpath in tqdm(file_list, desc=desc, unit="file", leave=False):
         try:
             result = subprocess.run(
                 [
@@ -249,7 +251,12 @@ def main():
     total_tiny = 0
     total_duration = 0.0
 
-    for english, scientific, code in ACTIVE_SPECIES:
+    # Progress bar for species processing
+    species_pbar = tqdm(ACTIVE_SPECIES, desc="Processing species", unit="species")
+    for english, scientific, code in species_pbar:
+        # Update progress bar with current species
+        species_pbar.set_postfix_str(f"{english[:20]}")
+
         species_downloads = downloads.get(english, {})
         species_metadata = metadata.get(english, {}) if metadata else {}
 
@@ -282,7 +289,9 @@ def main():
             duration = 0.0
             dur_str = ""
             if extract_durations and file_list:
-                duration = get_total_duration(file_list)
+                # Create descriptive label for progress bar
+                desc = f"{english[:15]}_{quality}"
+                duration = get_total_duration(file_list, desc=desc)
                 dur_str = format_duration(duration)
             elif extract_durations:
                 dur_str = "-"
@@ -317,6 +326,9 @@ def main():
             total_avail += n_avail if n_avail is not None else 0
             total_tiny += tiny
             total_duration += duration
+
+    # Close progress bar
+    species_pbar.close()
 
     # Grand total row
     if total_avail > 0:
