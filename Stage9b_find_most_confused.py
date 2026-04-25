@@ -295,17 +295,34 @@ def audio_to_melspec(audio, label, augment=False):
     # Normalize to [0, 1]
     mel_db = (mel_db - mel_db.min()) / (mel_db.max() - mel_db.min() + 1e-8)
 
-    # Resize to 224x224
-    mel_resized = tf.image.resize(mel_db[..., np.newaxis],
-                                  [TARGET_SPEC_HEIGHT, TARGET_SPEC_WIDTH])
+    # Resize to 224x224 using scipy (avoid TF ops inside py_function)
+    from scipy.ndimage import zoom
+    h_scale = TARGET_SPEC_HEIGHT / mel_db.shape[0]
+    w_scale = TARGET_SPEC_WIDTH / mel_db.shape[1]
+    mel_resized = zoom(mel_db, (h_scale, w_scale), order=1)
 
-    # Convert to 3-channel (for pretrained ImageNet models)
-    mel_rgb = tf.image.grayscale_to_rgb(mel_resized)
+    # Crop or pad to ensure exact 224x224 (zoom might be slightly off due to rounding)
+    h, w = mel_resized.shape
+    if h > TARGET_SPEC_HEIGHT:
+        mel_resized = mel_resized[:TARGET_SPEC_HEIGHT, :]
+    elif h < TARGET_SPEC_HEIGHT:
+        pad_h = TARGET_SPEC_HEIGHT - h
+        mel_resized = np.pad(mel_resized, ((0, pad_h), (0, 0)), mode='edge')
 
-    # Apply preprocessing for MobileNetV3
-    mel_preprocessed = PREPROCESS_FN(mel_rgb)
+    if w > TARGET_SPEC_WIDTH:
+        mel_resized = mel_resized[:, :TARGET_SPEC_WIDTH]
+    elif w < TARGET_SPEC_WIDTH:
+        pad_w = TARGET_SPEC_WIDTH - w
+        mel_resized = np.pad(mel_resized, ((0, 0), (0, pad_w)), mode='edge')
 
-    return mel_preprocessed.numpy().astype(np.float32), label
+    # Add channel dimension and convert to 3-channel
+    mel_rgb = np.stack([mel_resized] * 3, axis=-1).astype(np.float32)
+
+    # Apply preprocessing for MobileNetV3 (using numpy operations)
+    # MobileNetV3 preprocessing: scale to [-1, 1] range
+    mel_preprocessed = (mel_rgb * 2.0) - 1.0
+
+    return mel_preprocessed.astype(np.float32), label
 
 
 # ============================================================================
