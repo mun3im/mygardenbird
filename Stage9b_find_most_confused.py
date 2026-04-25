@@ -321,6 +321,23 @@ def audio_to_melspec(audio, label, augment=False):
         pad_w = TARGET_SPEC_WIDTH - w
         mel_resized = np.pad(mel_resized, ((0, 0), (0, pad_w)), mode='edge')
 
+    # Apply SpecAugment if requested (before channel expansion)
+    if augment:
+        # SpecAugment: mask random time and frequency segments
+        # Time masking: mask up to 20% of time frames
+        time_mask_param = int(mel_resized.shape[1] * 0.2)
+        if time_mask_param > 0:
+            t = np.random.randint(0, time_mask_param)
+            t0 = np.random.randint(0, mel_resized.shape[1] - t)
+            mel_resized[:, t0:t0+t] = 0.0
+
+        # Frequency masking: mask up to 20% of frequency bins
+        freq_mask_param = int(mel_resized.shape[0] * 0.2)
+        if freq_mask_param > 0:
+            f = np.random.randint(0, freq_mask_param)
+            f0 = np.random.randint(0, mel_resized.shape[0] - f)
+            mel_resized[f0:f0+f, :] = 0.0
+
     # Add channel dimension and convert to 3-channel
     mel_rgb = np.stack([mel_resized] * 3, axis=-1).astype(np.float32)
 
@@ -346,6 +363,7 @@ def build_multiclass_dataset(dataset_root: Path,
                              fold_names: List[str],
                              batch_size: int = 32,
                              shuffle: bool = False,
+                             augment: bool = False,
                              seed: int = 42):
     """
     Build dataset from specified folds across all classes.
@@ -358,6 +376,7 @@ def build_multiclass_dataset(dataset_root: Path,
         fold_names: List of fold names to include (e.g., ['fold0', 'fold1', ...])
         batch_size: Batch size
         shuffle: Whether to shuffle
+        augment: Whether to apply SpecAugment (use True for training, False for validation)
         seed: Random seed
 
     Returns:
@@ -415,7 +434,7 @@ def build_multiclass_dataset(dataset_root: Path,
         label.set_shape([])
 
         spec, label = tf.py_function(
-            lambda a, l: audio_to_melspec(a, l, augment=False),
+            lambda a, l: audio_to_melspec(a, l, augment=augment),
             [audio, label],
             [tf.float32, tf.int32]
         )
@@ -503,13 +522,13 @@ def run_5fold_cv(dataset_root: Path,
         print("Building train dataset...")
         train_ds, _ = build_multiclass_dataset(
             dataset_root, structure, assignment, class_to_idx,
-            train_fold_names, batch_size=BATCH_SIZE, shuffle=True, seed=seed
+            train_fold_names, batch_size=BATCH_SIZE, shuffle=True, augment=True, seed=seed
         )
 
         print("Building validation dataset...")
         val_ds, val_file_info = build_multiclass_dataset(
             dataset_root, structure, assignment, class_to_idx,
-            [val_fold_name], batch_size=BATCH_SIZE, shuffle=False
+            [val_fold_name], batch_size=BATCH_SIZE, shuffle=False, augment=False
         )
 
         print(f"Validation samples: {len(val_file_info)}")
