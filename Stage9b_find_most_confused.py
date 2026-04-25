@@ -278,6 +278,9 @@ def create_multiclass_5fold_mip_splits(structure: Dict[str, Dict[str, List[str]]
 
 def audio_to_melspec(audio, label, augment=False):
     """Convert audio to mel spectrogram (224x224x3)."""
+    # Ensure audio is numpy array (tf.py_function should already provide numpy arrays)
+    audio = np.asarray(audio, dtype=np.float32)
+
     mel = librosa.feature.melspectrogram(
         y=audio,
         sr=SAMPLE_RATE,
@@ -359,9 +362,16 @@ def build_multiclass_dataset(dataset_root: Path,
         raise ValueError(f"No samples found for folds {fold_names}")
 
     def load_audio_pyfunc(path, label):
-        audio, _ = librosa.load(path.numpy().decode('utf-8'),
-                                sr=SAMPLE_RATE,
-                                duration=3.0)
+        # Decode path to string
+        if isinstance(path, bytes):
+            path_str = path.decode('utf-8')
+        elif hasattr(path, 'numpy'):
+            path_bytes = path.numpy()
+            path_str = path_bytes.decode('utf-8') if isinstance(path_bytes, bytes) else str(path_bytes)
+        else:
+            path_str = str(path)
+
+        audio, _ = librosa.load(path_str, sr=SAMPLE_RATE, duration=3.0)
         if len(audio) < TARGET_LENGTH_SAMPLES:
             audio = np.pad(audio, (0, TARGET_LENGTH_SAMPLES - len(audio)))
         else:
