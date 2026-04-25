@@ -490,7 +490,15 @@ def run_5fold_cv(dataset_root: Path,
         print("Creating model...")
         model, base = create_mobilenetv3s_multiclass(num_classes, use_pretrained=True)
 
-        optimizer = optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
+        # Use legacy Adam optimizer on macOS for better performance
+        if platform.system().lower() == 'darwin':
+            try:
+                optimizer = optimizers.legacy.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
+            except AttributeError:
+                optimizer = optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
+        else:
+            optimizer = optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
+
         loss_fn = losses.SparseCategoricalCrossentropy()
         model.compile(optimizer=optimizer, loss=loss_fn, metrics=['accuracy'])
 
