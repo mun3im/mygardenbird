@@ -32,10 +32,6 @@ SEGMENT_DURATION       = 3.0    # seconds — fixed clip length
 MAX_SEGMENTS           = 10
 MAX_BLOB_DURATION      = 30.0   # seconds
 
-# Maximum overlap allowed when dragging segments (fraction of SEGMENT_DURATION)
-MAX_OVERLAP_FRACTION   = 0.0    # No overlap allowed
-MAX_OVERLAP_S          = SEGMENT_DURATION * MAX_OVERLAP_FRACTION   # 0.0 s
-
 DEFAULT_SOUND_DIR = str(PER_SPECIES_FLACS)
 
 
@@ -479,10 +475,10 @@ def interactive_segment_detector(audio_path):
         dx        = event.xdata - drag_state['start_x']
         new_start = drag_state['original_start'] + dx
 
-        # Boundaries allow up to MAX_OVERLAP_S into the neighbouring segment
-        left_limit = (current_segments[idx - 1][1] - MAX_OVERLAP_S
+        # Enforce no overlap with neighboring segments
+        left_limit = (current_segments[idx - 1][1]
                       if idx > 0 else 0.0)
-        right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION + MAX_OVERLAP_S
+        right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION
                        if idx < len(current_segments) - 1
                        else audio_duration - SEGMENT_DURATION)
 
@@ -516,9 +512,10 @@ def interactive_segment_detector(audio_path):
                          if event.xdata is not None else 0.0)
             new_start = drag_state['original_start'] + dx
 
-            left_limit = (current_segments[idx - 1][1] - MAX_OVERLAP_S
+            # Enforce no overlap with neighboring segments
+            left_limit = (current_segments[idx - 1][1]
                           if idx > 0 else 0.0)
-            right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION + MAX_OVERLAP_S
+            right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION
                            if idx < len(current_segments) - 1
                            else audio_duration - SEGMENT_DURATION)
 
