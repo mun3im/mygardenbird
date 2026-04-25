@@ -33,8 +33,8 @@ MAX_SEGMENTS           = 10
 MAX_BLOB_DURATION      = 30.0   # seconds
 
 # Maximum overlap allowed when dragging segments (fraction of SEGMENT_DURATION)
-MAX_OVERLAP_FRACTION   = 0.10   # 10 %
-MAX_OVERLAP_S          = SEGMENT_DURATION * MAX_OVERLAP_FRACTION   # 0.3 s
+MAX_OVERLAP_FRACTION   = 0.0    # No overlap allowed
+MAX_OVERLAP_S          = SEGMENT_DURATION * MAX_OVERLAP_FRACTION   # 0.0 s
 
 DEFAULT_SOUND_DIR = str(PER_SPECIES_FLACS)
 
@@ -365,7 +365,7 @@ def interactive_segment_detector(audio_path):
 
     # Waveform
     ax_wave.plot(times_waveform, y, color='black')
-    ax_wave.set_title('Waveform — 3 s segments (drag to reposition; 10 % overlap allowed)')
+    ax_wave.set_title('Waveform — 3 s segments (drag to reposition; no overlap allowed)')
     ax_wave.set_ylabel('Amplitude')
     ax_wave.set_xlim(0, audio_duration)
 
@@ -655,7 +655,7 @@ if __name__ == "__main__":
     print("USAGE:")
     print("  - Select an audio file in the file dialog")
     print("  - Review auto-detected segments (blue rectangles)")
-    print("  - Drag segments to adjust timing")
+    print("  - Drag segments to adjust timing (no overlap allowed)")
     print("  - Click 'Delete Selected' to remove poor segments")
     print("  - Adjust threshold/gap sliders if needed")
     print("  - Click 'Save' when done (max 10 segments)")
