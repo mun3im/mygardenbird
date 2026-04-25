@@ -186,9 +186,12 @@ def create_multiclass_5fold_mip_splits(structure: Dict[str, Dict[str, List[str]]
     x = {}
     for class_name, sources in structure.items():
         x[class_name] = {}
+        # Sanitize class name and source for PuLP variable names (alphanumeric + underscore only)
+        safe_cls = class_name.replace(' ', '_').replace('-', '_').replace('.', '_')
         for source in sources.keys():
+            safe_src = source.replace(' ', '_').replace('-', '_').replace('.', '_')
             x[class_name][source] = {
-                f'fold{i}': LpVariable(f"x_{class_name}_{source}_fold{i}", cat=LpBinary)
+                f'fold{i}': LpVariable(f"x_{safe_cls}_{safe_src}_fold{i}", cat=LpBinary)
                 for i in range(NUM_FOLDS)
             }
 
@@ -205,12 +208,14 @@ def create_multiclass_5fold_mip_splits(structure: Dict[str, Dict[str, List[str]]
     slack_pos = {}
     slack_neg = {}
     for class_name in structure.keys():
+        # Sanitize class name for PuLP variable names
+        safe_cls = class_name.replace(' ', '_').replace('-', '_').replace('.', '_')
         slack_pos[class_name] = {
-            f'fold{i}': LpVariable(f"slack_pos_{class_name}_fold{i}", lowBound=0)
+            f'fold{i}': LpVariable(f"slack_pos_{safe_cls}_fold{i}", lowBound=0)
             for i in range(NUM_FOLDS)
         }
         slack_neg[class_name] = {
-            f'fold{i}': LpVariable(f"slack_neg_{class_name}_fold{i}", lowBound=0)
+            f'fold{i}': LpVariable(f"slack_neg_{safe_cls}_fold{i}", lowBound=0)
             for i in range(NUM_FOLDS)
         }
 
@@ -290,7 +295,8 @@ def audio_to_melspec(audio, label, augment=False):
         fmin=0,
         fmax=SAMPLE_RATE // 2
     )
-    mel_db = librosa.power_to_db(mel, ref=np.max)
+    # top_db clips extreme negative values and stabilizes normalization
+    mel_db = librosa.power_to_db(mel, ref=np.max, top_db=80.0)
 
     # Normalize to [0, 1]
     mel_db = (mel_db - mel_db.min()) / (mel_db.max() - mel_db.min() + 1e-8)
@@ -318,9 +324,13 @@ def audio_to_melspec(audio, label, augment=False):
     # Add channel dimension and convert to 3-channel
     mel_rgb = np.stack([mel_resized] * 3, axis=-1).astype(np.float32)
 
-    # Apply preprocessing for MobileNetV3 (using numpy operations)
-    # MobileNetV3 preprocessing: scale to [-1, 1] range
-    mel_preprocessed = (mel_rgb * 2.0) - 1.0
+    # MobileNetV3 preprocessing: expects [0, 255] range, then scales to [-1, 1]
+    # mel_rgb is currently [0, 1], so scale to [0, 255] first
+    mel_scaled = mel_rgb * 255.0
+
+    # Apply MobileNetV3 preprocessing manually (equivalent to preprocess_input)
+    # MobileNetV3 uses: (x / 127.5) - 1.0 which maps [0, 255] to [-1, 1]
+    mel_preprocessed = (mel_scaled / 127.5) - 1.0
 
     return mel_preprocessed.astype(np.float32), label
 
@@ -414,7 +424,8 @@ def build_multiclass_dataset(dataset_root: Path,
         return spec, label
 
     dataset = tf.data.Dataset.from_tensor_slices((paths, labels))
-    dataset = dataset.map(process_audio, num_parallel_calls=4)
+    # Reduce parallelism to avoid librosa FFTW/OpenMP thread deadlocks in tf.py_function
+    dataset = dataset.map(process_audio, num_parallel_calls=2)
 
     if shuffle:
         dataset = dataset.shuffle(buffer_size=2000, seed=seed)
@@ -635,7 +646,9 @@ def plot_composite_confusion_matrix(cm: np.ndarray,
     print(f"\nGenerating composite confusion matrix...")
 
     # Normalize by row (true class)
-    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    row_sums = cm.sum(axis=1)[:, np.newaxis]
+    row_sums[row_sums == 0] = 1  # Prevent division by zero for empty rows
+    cm_normalized = cm.astype('float') / row_sums
 
     plt.figure(figsize=(16, 14))
     sns.heatmap(cm_normalized, annot=True, fmt='.2f', cmap='YlOrRd',
