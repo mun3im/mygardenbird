@@ -24,6 +24,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
 # ── Detection configuration ───────────────────────────────────────────────────
 LOW_PASS_CUTOFF        = 8000    # Hz
 HIGH_PASS_CUTOFF       = 200     # Hz
+DEFAULT_FREQ_CUTOFF    = 8000    # Hz — default max frequency for spectrogram display
 STFT_FRAME_SIZE        = 2048
 HOP_LENGTH             = STFT_FRAME_SIZE // 3
 INITIAL_MAX_SEGMENT_GAP = 0.7   # seconds
@@ -374,22 +375,26 @@ def interactive_segment_detector(audio_path):
     ax_spec.set_title('Spectrogram — blob outlines (click blob to remove segment)')
     ax_spec.set_xlabel("")
     ax_spec.set_xlim(0, audio_duration)
+    ax_spec.set_ylim(0, min(DEFAULT_FREQ_CUTOFF, sr/2))
 
     plt.tight_layout()
-    plt.subplots_adjust(bottom=0.25)
+    plt.subplots_adjust(bottom=0.28)
 
     # ── Widgets ───────────────────────────────────────────────────────────────
-    ax_threshold  = plt.axes([0.2, 0.15, 0.6, 0.03])
-    ax_gap        = plt.axes([0.2, 0.10, 0.6, 0.03])
-    ax_save       = plt.axes([0.8, 0.05, 0.1,  0.04])
-    ax_quit       = plt.axes([0.01, 0.05, 0.08, 0.04])
-    ax_info       = plt.axes([0.2, 0.05, 0.5,  0.04])
-    ax_play_stop  = plt.axes([0.1, 0.05, 0.08, 0.04])
+    ax_threshold   = plt.axes([0.2, 0.18, 0.6, 0.03])
+    ax_gap         = plt.axes([0.2, 0.13, 0.6, 0.03])
+    ax_freq_cutoff = plt.axes([0.2, 0.08, 0.6, 0.03])
+    ax_save        = plt.axes([0.8, 0.03, 0.1,  0.04])
+    ax_quit        = plt.axes([0.01, 0.03, 0.08, 0.04])
+    ax_info        = plt.axes([0.2, 0.03, 0.5,  0.04])
+    ax_play_stop   = plt.axes([0.1, 0.03, 0.08, 0.04])
 
-    slider_threshold = widgets.Slider(ax_threshold, 'Median Threshold', 1, 10,
-                                      valinit=initial_threshold, valstep=0.1)
-    slider_gap       = widgets.Slider(ax_gap, 'Max Segment Gap (s)', 0.1, 2.0,
-                                      valinit=INITIAL_MAX_SEGMENT_GAP, valstep=0.1)
+    slider_threshold  = widgets.Slider(ax_threshold, 'Median Threshold', 1, 10,
+                                       valinit=initial_threshold, valstep=0.1)
+    slider_gap        = widgets.Slider(ax_gap, 'Max Segment Gap (s)', 0.1, 2.0,
+                                       valinit=INITIAL_MAX_SEGMENT_GAP, valstep=0.1)
+    slider_freq_cutoff = widgets.Slider(ax_freq_cutoff, 'Max Frequency (Hz)', 500, sr/2,
+                                        valinit=min(DEFAULT_FREQ_CUTOFF, sr/2), valstep=100)
     save_button      = widgets.Button(ax_save, 'Save')
     quit_button      = widgets.Button(ax_quit, 'Quit')
     play_stop_button = widgets.Button(ax_play_stop, 'Play')
@@ -589,8 +594,14 @@ def interactive_segment_detector(audio_path):
         current_bounds[:]   = new_bnds
         update_segments(new_blobs=new_blobs)
 
+    def update_freq_cutoff(val):
+        """Update spectrogram frequency display range."""
+        ax_spec.set_ylim(0, slider_freq_cutoff.val)
+        fig.canvas.draw_idle()
+
     slider_threshold.on_changed(update_plot)
     slider_gap.on_changed(update_plot)
+    slider_freq_cutoff.on_changed(update_freq_cutoff)
 
     # ── Save / Quit ───────────────────────────────────────────────────────────
     def save_segments(event):
