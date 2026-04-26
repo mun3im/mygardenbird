@@ -340,7 +340,7 @@ def audio_to_melspec(audio, label, augment=False):
 # Mixup Augmentation
 # ============================================================================
 
-def mixup_batch(images, labels, alpha=0.2):
+def mixup_batch(images, labels, num_classes, alpha=0.2):
     """Apply Mixup augmentation to a batch.
 
     Mixup: Beyond Empirical Risk Minimization (Zhang et al., 2017)
@@ -349,13 +349,13 @@ def mixup_batch(images, labels, alpha=0.2):
     Args:
         images: Batch of images [batch_size, height, width, channels]
         labels: Batch of integer labels [batch_size]
+        num_classes: Total number of classes
         alpha: Mixup interpolation strength (0.2 recommended for audio)
 
     Returns:
         Mixed images and one-hot encoded mixed labels
     """
     batch_size = tf.shape(images)[0]
-    num_classes = tf.cast(tf.reduce_max(labels) + 1, tf.int32)
 
     # Sample lambda from Beta(alpha, alpha)
     # Using uniform as approximation for simplicity in tf.py_function context
@@ -480,11 +480,14 @@ def build_multiclass_dataset(dataset_root: Path,
     # Convert labels to one-hot for both train and val (required for categorical crossentropy)
     # For training: apply Mixup which mixes the one-hot labels
     # For validation: just convert to one-hot without mixing
+    num_classes = len(class_to_idx)
     if augment:
-        dataset = dataset.map(lambda x, y: mixup_batch(x, y, alpha=0.2), num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(
+            lambda x, y: mixup_batch(x, y, num_classes=num_classes, alpha=0.2),
+            num_parallel_calls=tf.data.AUTOTUNE
+        )
     else:
         # Validation: convert integer labels to one-hot without mixing
-        num_classes = len(class_to_idx)
         dataset = dataset.map(
             lambda x, y: (x, tf.one_hot(y, num_classes)),
             num_parallel_calls=tf.data.AUTOTUNE
