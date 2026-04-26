@@ -701,6 +701,11 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     root.withdraw()
+    # Force window to front on macOS
+    root.lift()
+    root.attributes('-topmost', True)
+    root.after_idle(root.attributes, '-topmost', False)
+
     audio_file = filedialog.askopenfilename(
         title="Select audio file",
         initialdir=initial_dir,
@@ -715,7 +720,12 @@ if __name__ == "__main__":
             ("WMA files",   "*.wma"),
         ],
     )
+
+    # Ensure all Tk events are processed before destroying
+    root.update()
     root.destroy()
+    # Small delay to ensure Tk is fully cleaned up before matplotlib starts
+    time.sleep(0.1)
 
     if audio_file:
         _save_last_dir(os.path.dirname(os.path.abspath(audio_file)))
