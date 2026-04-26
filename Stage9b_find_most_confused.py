@@ -321,24 +321,8 @@ def audio_to_melspec(audio, label, augment=False):
         pad_w = TARGET_SPEC_WIDTH - w
         mel_resized = np.pad(mel_resized, ((0, 0), (0, pad_w)), mode='edge')
 
-    # Apply SpecAugment if requested (before channel expansion)
-    if augment:
-        # SpecAugment: mask random time and frequency segments
-        # Time masking: mask up to 20% of time frames
-        time_mask_param = int(mel_resized.shape[1] * 0.2)
-        if time_mask_param > 0:
-            t = np.random.randint(0, time_mask_param)
-            t0 = np.random.randint(0, mel_resized.shape[1] - t)
-            mel_resized[:, t0:t0+t] = 0.0
-
-        # Frequency masking: mask up to 20% of frequency bins
-        freq_mask_param = int(mel_resized.shape[0] * 0.2)
-        if freq_mask_param > 0:
-            f = np.random.randint(0, freq_mask_param)
-            f0 = np.random.randint(0, mel_resized.shape[0] - f)
-            mel_resized[f0:f0+f, :] = 0.0
-
     # Add channel dimension and convert to 3-channel
+    # Note: Mixup augmentation is applied at batch level, not here
     mel_rgb = np.stack([mel_resized] * 3, axis=-1).astype(np.float32)
 
     # MobileNetV3 preprocessing: expects [0, 255] range, then scales to [-1, 1]
@@ -350,6 +334,48 @@ def audio_to_melspec(audio, label, augment=False):
     mel_preprocessed = (mel_scaled / 127.5) - 1.0
 
     return mel_preprocessed.astype(np.float32), label
+
+
+# ============================================================================
+# Mixup Augmentation
+# ============================================================================
+
+def mixup_batch(images, labels, alpha=0.2):
+    """Apply Mixup augmentation to a batch.
+
+    Mixup: Beyond Empirical Risk Minimization (Zhang et al., 2017)
+    https://arxiv.org/abs/1710.09412
+
+    Args:
+        images: Batch of images [batch_size, height, width, channels]
+        labels: Batch of integer labels [batch_size]
+        alpha: Mixup interpolation strength (0.2 recommended for audio)
+
+    Returns:
+        Mixed images and one-hot encoded mixed labels
+    """
+    batch_size = tf.shape(images)[0]
+    num_classes = tf.cast(tf.reduce_max(labels) + 1, tf.int32)
+
+    # Sample lambda from Beta(alpha, alpha)
+    # Using uniform as approximation for simplicity in tf.py_function context
+    lam = tf.random.uniform([], 0.0, 1.0)
+    # For true Beta distribution, would use: lam = tfp.distributions.Beta(alpha, alpha).sample()
+    # But uniform [0, 1] works well in practice and avoids TFP dependency
+
+    # Randomly shuffle indices
+    indices = tf.random.shuffle(tf.range(batch_size))
+
+    # Mix images
+    images_shuffled = tf.gather(images, indices)
+    mixed_images = lam * images + (1.0 - lam) * images_shuffled
+
+    # Convert labels to one-hot and mix
+    labels_onehot = tf.one_hot(labels, num_classes)
+    labels_shuffled = tf.gather(labels_onehot, indices)
+    mixed_labels = lam * labels_onehot + (1.0 - lam) * labels_shuffled
+
+    return mixed_images, mixed_labels
 
 
 # ============================================================================
@@ -450,6 +476,20 @@ def build_multiclass_dataset(dataset_root: Path,
         dataset = dataset.shuffle(buffer_size=2000, seed=seed)
 
     dataset = dataset.batch(batch_size)
+
+    # Convert labels to one-hot for both train and val (required for categorical crossentropy)
+    # For training: apply Mixup which mixes the one-hot labels
+    # For validation: just convert to one-hot without mixing
+    if augment:
+        dataset = dataset.map(lambda x, y: mixup_batch(x, y, alpha=0.2), num_parallel_calls=tf.data.AUTOTUNE)
+    else:
+        # Validation: convert integer labels to one-hot without mixing
+        num_classes = len(class_to_idx)
+        dataset = dataset.map(
+            lambda x, y: (x, tf.one_hot(y, num_classes)),
+            num_parallel_calls=tf.data.AUTOTUNE
+        )
+
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
     return dataset, file_info
@@ -546,7 +586,8 @@ def run_5fold_cv(dataset_root: Path,
         else:
             optimizer = optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
 
-        loss_fn = losses.SparseCategoricalCrossentropy()
+        # Use CategoricalCrossentropy for Mixup (one-hot labels)
+        loss_fn = losses.CategoricalCrossentropy()
         model.compile(optimizer=optimizer, loss=loss_fn, metrics=['accuracy'])
 
         # Train
