@@ -9,12 +9,6 @@ from tqdm import tqdm
 
 from config import ACTIVE_SPECIES, VALID_QUALITIES, folder_name, PER_SPECIES_FLACS, PER_SPECIES_CSV
 
-# Derived lookups
-_SCIENTIFIC_TO_SPECIES = {
-    sci.replace(" ", "_"): (eng, sci, code)
-    for eng, sci, code in ACTIVE_SPECIES
-}
-
 
 def scan_downloads(input_dir):
     """Scan input_dir for {English name}/{quality}/xc*.flac structure.
@@ -43,23 +37,29 @@ def scan_downloads(input_dir):
 
 
 def load_metadata(metadata_dir):
-    """Read active_species/ CSVs and count available recordings per quality.
+    """Read per-species CSVs and count available recordings per quality.
 
     Returns dict keyed by English name: {english: {quality: count}}.
-    CSV filenames are like Geopelia_striata.csv (Genus_species.csv).
+    CSV filenames match English name with spaces replaced by underscores,
+    e.g. Asian_Koel.csv.
     """
     if not os.path.isdir(metadata_dir):
         return None
+
+    # Build lookup: underscore_english -> english
+    english_lookup = {
+        eng.replace(" ", "_"): eng
+        for eng, _, _ in ACTIVE_SPECIES
+    }
 
     results = {}
     for fname in os.listdir(metadata_dir):
         if not fname.endswith(".csv"):
             continue
-        stem = fname[:-4]  # e.g. "Geopelia_striata"
-        species_info = _SCIENTIFIC_TO_SPECIES.get(stem)
-        if not species_info:
+        stem = fname[:-4]  # e.g. "Asian_Koel"
+        english = english_lookup.get(stem)
+        if not english:
             continue
-        english, _, _ = species_info
 
         quality_counts = defaultdict(int)
         path = os.path.join(metadata_dir, fname)
@@ -170,7 +170,7 @@ def main():
     parser.add_argument(
         "--output",
         default=None,
-        help="CSV output path. Default: {input_dir}/stage3_eda_report.csv.",
+        help="CSV output path. Default: <project_csv>/stage4_eda_report.csv.",
     )
     parser.add_argument(
         "--skip-durations",
@@ -194,7 +194,8 @@ def main():
 
     output_path = args.output
     if output_path is None:
-        output_path = os.path.join(input_dir, "stage4_eda_report.csv")
+        from config import PROJECT_CSV
+        output_path = os.path.join(str(PROJECT_CSV), "stage4_eda_report.csv")
 
     # Print startup information
     print("=" * 80)
