@@ -34,7 +34,7 @@ Feature: Mel spectrogram
 Augmentation: None (not needed for confusion detection)
 
 Usage:
-    python Stage9b_find_most_confused.py --dataset_root /path/to/mygardenbird16khz
+    python Stage5a_find_most_confused.py --dataset_root /path/to/mygardenbird16khz
 """
 
 import os
@@ -112,9 +112,9 @@ TARGET_SAMPLES_PER_CLASS = 600
 NUM_FOLDS = 5
 
 # Training configuration
-MAX_EPOCHS_PER_FOLD = 25
+MAX_EPOCHS_PER_FOLD = 40    # epochs per fold (EarlyStopping will cut short when val_acc plateaus)
 BATCH_SIZE = 32
-LEARNING_RATE = 0.001
+FINETUNE_LR = 1e-4          # fine-tune LR (full base unfreeze, matches Stage9)
 
 
 # ============================================================================
@@ -282,58 +282,42 @@ def create_multiclass_5fold_mip_splits(structure: Dict[str, Dict[str, List[str]]
 # ============================================================================
 
 def audio_to_melspec(audio, label, augment=False):
-    """Convert audio to mel spectrogram (224x224x3)."""
-    # Ensure audio is numpy array (tf.py_function should already provide numpy arrays)
-    audio = np.asarray(audio, dtype=np.float32)
+    """Convert audio to mel spectrogram (224x224x3), matching Stage9 preprocessing."""
+    audio = np.squeeze(np.asarray(audio, dtype=np.float32))
 
     mel = librosa.feature.melspectrogram(
-        y=audio,
-        sr=SAMPLE_RATE,
-        n_fft=N_FFT,
-        hop_length=HOP_LENGTH,
-        n_mels=N_MELS,
-        fmin=0,
-        fmax=SAMPLE_RATE // 2
+        y=audio, sr=SAMPLE_RATE, n_fft=N_FFT, hop_length=HOP_LENGTH,
+        n_mels=N_MELS, fmin=0, fmax=SAMPLE_RATE // 2,
+        center=True, pad_mode='constant'
     )
-    # top_db clips extreme negative values and stabilizes normalization
-    mel_db = librosa.power_to_db(mel, ref=np.max, top_db=80.0)
+    # top_db=None preserves full dynamic range (matches Stage9)
+    mel_db = librosa.power_to_db(mel, top_db=None)
 
-    # Normalize to [0, 1]
-    mel_db = (mel_db - mel_db.min()) / (mel_db.max() - mel_db.min() + 1e-8)
-
-    # Resize to 224x224 using scipy (avoid TF ops inside py_function)
-    from scipy.ndimage import zoom
-    h_scale = TARGET_SPEC_HEIGHT / mel_db.shape[0]
-    w_scale = TARGET_SPEC_WIDTH / mel_db.shape[1]
-    mel_resized = zoom(mel_db, (h_scale, w_scale), order=1)
-
-    # Crop or pad to ensure exact 224x224 (zoom might be slightly off due to rounding)
-    h, w = mel_resized.shape
+    # Pad/crop to exact 224x224 (no interpolation artifacts from zoom)
+    h, w = mel_db.shape
     if h > TARGET_SPEC_HEIGHT:
-        mel_resized = mel_resized[:TARGET_SPEC_HEIGHT, :]
+        mel_db = mel_db[:TARGET_SPEC_HEIGHT, :]
     elif h < TARGET_SPEC_HEIGHT:
-        pad_h = TARGET_SPEC_HEIGHT - h
-        mel_resized = np.pad(mel_resized, ((0, pad_h), (0, 0)), mode='edge')
-
+        mel_db = np.pad(mel_db, ((0, TARGET_SPEC_HEIGHT - h), (0, 0)),
+                        constant_values=mel_db.min())
     if w > TARGET_SPEC_WIDTH:
-        mel_resized = mel_resized[:, :TARGET_SPEC_WIDTH]
+        mel_db = mel_db[:, :TARGET_SPEC_WIDTH]
     elif w < TARGET_SPEC_WIDTH:
-        pad_w = TARGET_SPEC_WIDTH - w
-        mel_resized = np.pad(mel_resized, ((0, 0), (0, pad_w)), mode='edge')
+        mel_db = np.pad(mel_db, ((0, 0), (0, TARGET_SPEC_WIDTH - w)),
+                        constant_values=mel_db.min())
 
-    # Add channel dimension and convert to 3-channel
-    # Note: Mixup augmentation is applied at batch level, not here
-    mel_rgb = np.stack([mel_resized] * 3, axis=-1).astype(np.float32)
+    mel_rgb = np.stack([mel_db] * 3, axis=-1).astype(np.float32)
 
-    # MobileNetV3 preprocessing: expects [0, 255] range, then scales to [-1, 1]
-    # mel_rgb is currently [0, 1], so scale to [0, 255] first
-    mel_scaled = mel_rgb * 255.0
+    # Robust p2/p98 percentile normalization → [0, 255].
+    # MobileNetV3Small preprocess_input is a NO-OP (expects [0, 255]), unlike MobileNetV2.
+    p2, p98 = np.percentile(mel_rgb, (2, 98))
+    if p98 > p2 + 1e-8:
+        mel_rgb = np.clip(mel_rgb, p2, p98)
+        mel_rgb = ((mel_rgb - p2) / (p98 - p2) * 255.0).astype(np.float32)
+    else:
+        mel_rgb = np.full_like(mel_rgb, 128.0, dtype=np.float32)
 
-    # Apply MobileNetV3 preprocessing manually (equivalent to preprocess_input)
-    # MobileNetV3 uses: (x / 127.5) - 1.0 which maps [0, 255] to [-1, 1]
-    mel_preprocessed = (mel_scaled / 127.5) - 1.0
-
-    return mel_preprocessed.astype(np.float32), label
+    return mel_rgb.astype(np.float32), label
 
 
 # ============================================================================
@@ -434,16 +418,7 @@ def build_multiclass_dataset(dataset_root: Path,
         raise ValueError(f"No samples found for folds {fold_names}")
 
     def load_audio_pyfunc(path, label):
-        # Decode path to string
-        if isinstance(path, bytes):
-            path_str = path.decode('utf-8')
-        elif hasattr(path, 'numpy'):
-            path_bytes = path.numpy()
-            path_str = path_bytes.decode('utf-8') if isinstance(path_bytes, bytes) else str(path_bytes)
-        else:
-            path_str = str(path)
-
-        audio, _ = librosa.load(path_str, sr=SAMPLE_RATE, duration=3.0)
+        audio, _ = librosa.load(path.numpy().decode('utf-8'), sr=SAMPLE_RATE, duration=3.0)
         if len(audio) < TARGET_LENGTH_SAMPLES:
             audio = np.pad(audio, (0, TARGET_LENGTH_SAMPLES - len(audio)))
         else:
@@ -468,31 +443,19 @@ def build_multiclass_dataset(dataset_root: Path,
         label.set_shape([])
         return spec, label
 
-    dataset = tf.data.Dataset.from_tensor_slices((paths, labels))
-    # Reduce parallelism to avoid librosa FFTW/OpenMP thread deadlocks in tf.py_function
-    dataset = dataset.map(process_audio, num_parallel_calls=2)
+    path_ds = tf.data.Dataset.from_tensor_slices(paths)
+    label_ds = tf.data.Dataset.from_tensor_slices(labels)
+    dataset = tf.data.Dataset.zip((path_ds, label_ds))
 
+    # Shuffle BEFORE map (matches Stage9): ensures balanced class distribution per batch.
+    # Use full buffer + reshuffle_each_iteration for proper per-epoch randomization.
     if shuffle:
-        dataset = dataset.shuffle(buffer_size=2000, seed=seed)
+        dataset = dataset.shuffle(
+            buffer_size=len(paths), seed=seed, reshuffle_each_iteration=True
+        )
 
+    dataset = dataset.map(process_audio, num_parallel_calls=4)
     dataset = dataset.batch(batch_size)
-
-    # Convert labels to one-hot for both train and val (required for categorical crossentropy)
-    # For training: apply Mixup which mixes the one-hot labels
-    # For validation: just convert to one-hot without mixing
-    num_classes = len(class_to_idx)
-    if augment:
-        dataset = dataset.map(
-            lambda x, y: mixup_batch(x, y, num_classes=num_classes, alpha=0.2),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
-    else:
-        # Validation: convert integer labels to one-hot without mixing
-        dataset = dataset.map(
-            lambda x, y: (x, tf.one_hot(y, num_classes)),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
-
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
     return dataset, file_info
@@ -503,7 +466,7 @@ def build_multiclass_dataset(dataset_root: Path,
 # ============================================================================
 
 def create_mobilenetv3s_multiclass(num_classes: int, use_pretrained: bool = True):
-    """Create MobileNetV3Small for multi-class classification."""
+    """Create MobileNetV3Small for multi-class classification. Same head as Stage9."""
     weights = 'imagenet' if use_pretrained else None
 
     base = applications.MobileNetV3Small(
@@ -513,6 +476,7 @@ def create_mobilenetv3s_multiclass(num_classes: int, use_pretrained: bool = True
         pooling='avg'
     )
 
+    # Matches Stage9 exactly: base → Dropout → Dense(512, relu) → Dropout → softmax
     model = keras.Sequential([
         base,
         layers.Dropout(0.3),
@@ -528,13 +492,31 @@ def create_mobilenetv3s_multiclass(num_classes: int, use_pretrained: bool = True
 # 5-Fold Cross-Validation
 # ============================================================================
 
+def make_optimizer(lr):
+    """Create Adam optimizer, using legacy on macOS for Metal compatibility."""
+    if platform.system().lower() == 'darwin':
+        try:
+            return optimizers.legacy.Adam(learning_rate=lr, clipnorm=1.0)
+        except AttributeError:
+            pass
+    return optimizers.Adam(learning_rate=lr, clipnorm=1.0)
+
+
 def run_5fold_cv(dataset_root: Path,
                 structure: Dict[str, Dict[str, List[str]]],
                 assignment: Dict[str, Dict[str, str]],
                 classes: List[str],
-                seed: int = 42):
+                seed: int = 42,
+                single_fold: bool = False):
     """
     Run 5-fold cross-validation and collect all predictions.
+
+    Two-phase training per fold:
+      Phase 1 (warmup):   WARMUP_EPOCHS with frozen base, LR=LEARNING_RATE
+      Phase 2 (finetune): FINETUNE_EPOCHS with all layers unfrozen, LR=FINETUNE_LR
+
+    Args:
+        single_fold: If True, run only fold 0 (for quick accuracy checks).
 
     Returns:
         all_predictions: List of prediction dicts
@@ -547,21 +529,20 @@ def run_5fold_cv(dataset_root: Path,
     all_predictions = []
     confusion_matrix_accumulated = np.zeros((num_classes, num_classes), dtype=int)
 
-    print(f"\nRunning 5-fold cross-validation...")
+    folds_to_run = [0] if single_fold else list(range(NUM_FOLDS))
+    print(f"\n{'Single-fold probe (fold 0)' if single_fold else '5-fold cross-validation'}")
     print(f"Classes: {num_classes}")
-    print(f"Max epochs per fold: {MAX_EPOCHS_PER_FOLD}")
+    print(f"Training: {MAX_EPOCHS_PER_FOLD} epochs, full model unfrozen, input [0,255]")
     print()
 
-    for fold_idx in range(NUM_FOLDS):
+    for fold_idx in folds_to_run:
         print(f"{'='*80}")
         print(f"Fold {fold_idx+1}/{NUM_FOLDS}")
         print(f"{'='*80}")
 
-        # Train folds: all except current fold
         train_fold_names = [f'fold{i}' for i in range(NUM_FOLDS) if i != fold_idx]
         val_fold_name = f'fold{fold_idx}'
 
-        # Build datasets
         print("Building train dataset...")
         train_ds, _ = build_multiclass_dataset(
             dataset_root, structure, assignment, class_to_idx,
@@ -569,58 +550,65 @@ def run_5fold_cv(dataset_root: Path,
         )
 
         print("Building validation dataset...")
+        # Shuffle val during training for balanced per-batch accuracy display
         val_ds, val_file_info = build_multiclass_dataset(
             dataset_root, structure, assignment, class_to_idx,
-            [val_fold_name], batch_size=BATCH_SIZE, shuffle=False, augment=False
+            [val_fold_name], batch_size=BATCH_SIZE, shuffle=True, augment=False, seed=seed
+        )
+        # Unshuffled val for prediction collection (val_file_info is in sorted order)
+        pred_ds, _ = build_multiclass_dataset(
+            dataset_root, structure, assignment, class_to_idx,
+            [val_fold_name], batch_size=BATCH_SIZE, shuffle=False, augment=False, seed=seed
         )
 
         print(f"Validation samples: {len(val_file_info)}")
 
-        # Create model
         print("Creating model...")
         model, base = create_mobilenetv3s_multiclass(num_classes, use_pretrained=True)
+        loss_fn = losses.SparseCategoricalCrossentropy()
 
-        # Use legacy Adam optimizer on macOS for better performance
-        if platform.system().lower() == 'darwin':
-            try:
-                optimizer = optimizers.legacy.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
-            except AttributeError:
-                optimizer = optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
-        else:
-            optimizer = optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
+        WARMUP_LR = 1e-3
+        FINETUNE_LR = 1e-4
+        WARMUP_EPOCHS = 10
 
-        # Use CategoricalCrossentropy for Mixup (one-hot labels)
-        loss_fn = losses.CategoricalCrossentropy()
-        model.compile(optimizer=optimizer, loss=loss_fn, metrics=['accuracy'])
+        def make_adam(lr):
+            if platform.system().lower() == 'darwin':
+                try:
+                    return optimizers.legacy.Adam(learning_rate=lr, clipnorm=1.0)
+                except AttributeError:
+                    pass
+            return optimizers.Adam(learning_rate=lr, clipnorm=1.0)
 
-        # Train
-        print("Training...")
-        callbacks = [
+        # Single-phase: full model trainable from epoch 1 at small LR.
+        # No frozen warmup — avoids BN mode-switch that causes loss explosion on Metal/macOS.
+        # Small LR keeps pretrained weights stable while adapting to spectrograms.
+        TRAIN_LR = 5e-5
+        TOTAL_EPOCHS = MAX_EPOCHS_PER_FOLD
+        print(f"\n[Training] {TOTAL_EPOCHS} epochs, full model, Adam LR={TRAIN_LR}")
+        base.trainable = True
+        model.compile(optimizer=make_adam(TRAIN_LR), loss=loss_fn, metrics=['accuracy'])
+
+        train_callbacks = [
             keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss', factor=0.5,
-                patience=3, min_lr=1e-7, verbose=1
+                monitor='val_loss', factor=0.5, patience=3, min_lr=1e-8, verbose=1
             ),
             keras.callbacks.EarlyStopping(
-                monitor='val_accuracy', patience=8,
+                monitor='val_accuracy', patience=15,
                 mode='max', restore_best_weights=True, verbose=1
             )
         ]
-
         history = model.fit(
-            train_ds,
-            validation_data=val_ds,
-            epochs=MAX_EPOCHS_PER_FOLD,
-            callbacks=callbacks,
-            verbose=1
+            train_ds, validation_data=val_ds,
+            epochs=TOTAL_EPOCHS, callbacks=train_callbacks, verbose=1
         )
 
-        epochs_trained = len(history.history['loss'])
         best_val_acc = max(history.history['val_accuracy'])
-        print(f"\nCompleted in {epochs_trained} epochs | Best val_acc: {best_val_acc:.4f}")
+        total_epochs = len(history.history['loss'])
+        print(f"\nFold {fold_idx+1}: {total_epochs} total epochs | Best val_acc: {best_val_acc:.4f}")
 
-        # Get predictions
+        # Get predictions using unshuffled pred_ds (val_file_info is in sorted order)
         print("Generating predictions...")
-        y_pred_probs = model.predict(val_ds, verbose=0)
+        y_pred_probs = model.predict(pred_ds, verbose=0)
         y_pred = np.argmax(y_pred_probs, axis=1)
         y_true = np.array([info[3] for info in val_file_info])
 
@@ -767,6 +755,8 @@ def main():
                         help='Random seed for reproducibility')
     parser.add_argument('--force_cpu', action='store_true',
                         help='Force CPU mode (disable GPU)')
+    parser.add_argument('--single_fold', action='store_true',
+                        help='Run only fold 0 (quick accuracy probe; use until val_acc >= 80%%)')
 
     args = parser.parse_args()
 
@@ -864,10 +854,14 @@ def main():
     # Create 5-fold MIP splits
     assignment = create_multiclass_5fold_mip_splits(structure)
 
-    # Run 5-fold cross-validation
+    # Run CV (single fold for probing, full 5-fold once val_acc >= 80%)
+    if args.single_fold:
+        print("\n[--single_fold] Running fold 0 only as accuracy probe.")
+        print("Re-run without --single_fold once val_acc >= 80%.\n")
     start_time = time.time()
     all_predictions, cm_accumulated, classes = run_5fold_cv(
-        dataset_root, structure, assignment, eligible_classes, seed=args.seed
+        dataset_root, structure, assignment, eligible_classes,
+        seed=args.seed, single_fold=args.single_fold
     )
     elapsed = time.time() - start_time
 
@@ -893,6 +887,11 @@ def main():
     print(f"Total predictions: {len(all_predictions)}")
     print(f"Overall accuracy: {total_accuracy:.2%}")
     print(f"Results saved to: {output_dir}")
+    if args.single_fold:
+        if total_accuracy >= 0.80:
+            print("\n✅ val_acc >= 80% — re-run without --single_fold for full 5-fold CV.")
+        else:
+            print(f"\n⚠️  val_acc {total_accuracy:.2%} < 80% — tune further before full 5-fold CV.")
     print()
 
     if classes_above:

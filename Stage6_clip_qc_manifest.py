@@ -372,8 +372,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python Stage7_clip_qc_manifest.py
-  python Stage7_clip_qc_manifest.py /path/to/extracted_segments --output-dir ./dataset
+  python Stage6_clip_qc_manifest.py
+  python Stage6_clip_qc_manifest.py /path/to/extracted_segments --output-dir ./dataset
         """
     )
 

@@ -1,0 +1,46 @@
+# One-off analysis, helper, and experiment scripts
+analyze_*.py
+backfill_*.py
+benchmark_*.py
+check_*.py
+cleanup_*.py
+create_summary.py
+detailed_breakdown.py
+extract_*.py
+generate_*.py
+Helper*.py
+mobilenets_*.py
+mynanet_v1.py
+o0_*.py
+overall_summary.py
+plot_*.py
+regenerate_*.py
+restore_annotations.py
+reverse_annotate.py
+trace_*.py
+train_seabird_*.py
+verify_mixup_results.py
+utils.py
+
+# Numbered experiment scripts
+[0-9]*.py
+
+# Old configs and archived scripts
+config.seabird.py
+archived_scripts/
+
+# Extras one-offs
+extras/verify_structural_integrity*.py
+extras/plot_confusion_composite.py
+
+# Pipeline state blobs
+.stage5_*.json
+
+# IDE and editor
+.idea/
+.obsidian/
+*.swp
+*~
+
+# OS
+.DS_Store
