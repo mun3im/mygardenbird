@@ -232,13 +232,13 @@ def main():
         epilog="""
 Examples:
   # Extract all annotated segments
-  python Stage6_extract_annotated_segments.py /Volumes/Evo/xc-mygarden-flac --output-dir ./extracted_segments
+  python Stage5_extract_annotated_segments.py /Volumes/Evo/xc-mygarden-flac --output-dir ./extracted_segments
 
   # Extract with custom sample rate
-  python Stage6_extract_annotated_segments.py /Volumes/Evo/xc-mygarden-flac --output-dir ./extracted_segments --sample-rate 22050
+  python Stage5_extract_annotated_segments.py /Volumes/Evo/xc-mygarden-flac --output-dir ./extracted_segments --sample-rate 22050
 
   # Non-recursive (only search top-level directory)
-  python Stage6_extract_annotated_segments.py /Volumes/Evo/xc-mygarden-flac --output-dir ./extracted_segments --no-recursive
+  python Stage5_extract_annotated_segments.py /Volumes/Evo/xc-mygarden-flac --output-dir ./extracted_segments --no-recursive
         """
     )
 

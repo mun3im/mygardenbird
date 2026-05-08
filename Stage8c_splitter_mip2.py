@@ -2,7 +2,7 @@
 """
 MyGardenBird Dataset Splitter — MIP with dual-objective (clip + source balance)
 
-Variant of Stage8a_splitter_mip.py that adds a secondary source-count balance
+Variant of Stage7_splitter_mip.py that adds a secondary source-count balance
 term to the optimisation objective.
 
 Stage8a problem:
@@ -29,7 +29,7 @@ solver will prefer those with the most balanced source counts.
 New CLI argument:
   --source-weight FLOAT   Weight ε for the source-balance term (default: 0.001)
 
-All other behaviour is identical to Stage8a_splitter_mip.py.
+All other behaviour is identical to Stage7_splitter_mip.py.
 
 Requires: pip install pulp
 """

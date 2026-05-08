@@ -14,16 +14,16 @@ Default: no augmentation
 Usage Examples
 --------------
 # No augmentation (pretrained weights used by default):
-python Stage9_train_mygardenbird_multifeature.py
+python Stage8_train_mygardenbird_multifeature.py
 
 # With SpecAugment:
-python Stage9_train_mygardenbird_multifeature.py --specaug
+python Stage8_train_mygardenbird_multifeature.py --specaug
 
 # With Mixup (alpha=0.2):
-python Stage9_train_mygardenbird_multifeature.py --mixup 0.2
+python Stage8_train_mygardenbird_multifeature.py --mixup 0.2
 
 # Full example:
-python Stage9_train_mygardenbird_multifeature.py \\
+python Stage8_train_mygardenbird_multifeature.py \\
     --model mobilenetv3s \\
     --feature mel \\
     --splits_csv /Volumes/Evo/MYGARDENBIRD/metadata16khz/splits_mip_80_10_10.csv \\

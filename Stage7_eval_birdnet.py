@@ -236,6 +236,7 @@ def main():
         labels=species_names,
         target_names=species_names,
         zero_division=0,
+        digits=4,
     )
 
     # Per-class AUC (one-vs-rest)
