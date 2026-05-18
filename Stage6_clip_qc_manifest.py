@@ -6,7 +6,7 @@ Analyzes extracted WAV segments and produces:
   - qc_report.csv    — per-clip quality metrics (diagnostic)
   - recordings.csv   — one row per source recording (PK: source_id)
                          fields: source_id, species_common, species_scientific,
-                                 quality_grade, type_label, latitude, longitude, country
+                                 quality_grade, cc_license, type_label, latitude, longitude, country
   - clips.csv        — one row per clip (PK: file_id, FK: source_id)
                          fields: file_id, source_id, onset_ms,
                                  sampling_rate, snr_db, rms_db, peak_amplitude, is_clipped
@@ -225,11 +225,40 @@ def save_qc_report(results, output_path):
 # Stage 1 metadata
 # ---------------------------------------------------------------------------
 
+def _lic_to_spdx(url: str) -> str:
+    """Convert a Xeno-Canto CC licence URL to an SPDX identifier.
+
+    XC returns URLs like https://creativecommons.org/licenses/by-nc-sa/4.0/
+    We normalise to CC-BY-NC-SA-4.0 format.  Unknown values are passed through.
+    """
+    if not url:
+        return ""
+    url = url.strip().rstrip("/").lower()
+    # Extract the path segment after /licenses/
+    marker = "/licenses/"
+    idx = url.find(marker)
+    if idx == -1:
+        # publicdomain / zero
+        if "publicdomain" in url or "zero" in url:
+            return "CC0-1.0"
+        return url
+    slug = url[idx + len(marker):]          # e.g. "by-nc-sa/4.0"
+    parts = [p for p in slug.split("/") if p]
+    if not parts:
+        return url
+    code = parts[0].upper()                 # e.g. "BY-NC-SA"
+    version = parts[1] if len(parts) > 1 else ""
+    spdx = f"CC-{code}"
+    if version:
+        spdx += f"-{version}"
+    return spdx
+
+
 def load_xc_metadata(metadata_dir):
     """
     Load Stage 1 per-species CSVs.
 
-    Returns dict: xc_id (str) -> {lat, lon, quality_grade, type_label, country}
+    Returns dict: xc_id (str) -> {lat, lon, quality_grade, cc_license, type_label, country}
 
     Note: sampling_rate for the manifest comes from the WAV file itself (detected
     in check_audio_quality), not from the Stage 1 `smp` field (which is the
@@ -247,6 +276,7 @@ def load_xc_metadata(metadata_dir):
                         "lat":           row.get("lat", ""),
                         "lon":           row.get("lon", ""),
                         "quality_grade": row.get("q",   ""),
+                        "cc_license":    _lic_to_spdx(row.get("lic", "")),
                         "type_label":    normalise_type(row.get("type", "")),
                         "country":       row.get("cnt", ""),
                     }
@@ -282,12 +312,12 @@ def generate_recordings_csv(results, output_path, xc_metadata):
     Write recordings.csv — one row per unique source recording (PK: source_id).
 
     Columns: source_id, species_common, species_scientific,
-             quality_grade, type_label, latitude, longitude, country
+             quality_grade, cc_license, type_label, latitude, longitude, country
     """
     fieldnames = [
         "source_id",
         "species_common", "species_scientific",
-        "quality_grade", "type_label",
+        "quality_grade", "cc_license", "type_label",
         "latitude", "longitude", "country",
     ]
 
@@ -307,6 +337,7 @@ def generate_recordings_csv(results, output_path, xc_metadata):
                 "species_common":     species_common,
                 "species_scientific": species_scientific,
                 "quality_grade":      meta.get("quality_grade", ""),
+                "cc_license":         meta.get("cc_license", ""),
                 "type_label":         meta.get("type_label", ""),
                 "latitude":           meta.get("lat", ""),
                 "longitude":          meta.get("lon", ""),
