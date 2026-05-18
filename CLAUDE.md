@@ -75,12 +75,23 @@ The annotation GUI (`Stage4_find_segments_interactive.py`) is a critical manual 
 - **Peak amplitude**: Maximum absolute sample value
 - **Clipping detection**: Flags clips with >1% samples at ±1.0
 
-**Output**: `metadata16khz/clips.csv` or `metadata44khz/clips.csv` with columns:
+**Output — `clips.csv`** (`metadata16khz/clips.csv` or `metadata44khz/clips.csv`):
 ```
 file_id,source_id,onset_ms,sampling_rate,snr_db,rms_db,peak_amplitude,is_clipped
 ```
-
 This CSV serves as the ground truth manifest for splitting and training.
+
+**Output — `recordings.csv`** (`project_csv/recordings.csv`, shared by both sample rates):
+```
+source_id,species_common,species_scientific,quality_grade,cc_license,type_label,latitude,longitude,country
+```
+- `cc_license`: Creative Commons licence as an SPDX identifier (e.g. `CC-BY-NC-SA-4.0`), converted from the raw XC API URL by `_lic_to_spdx()`.
+
+To backfill `cc_license` into an existing `recordings.csv` without re-running Stage 6:
+```bash
+python backfill_cc_license.py  # uses config defaults
+```
+The backfill script also checks `per_species_csv_old/` for recordings that were later filtered out of the current Stage 1 CSVs.
 
 ### Stage 7: Data Splitting
 
@@ -160,9 +171,9 @@ The paper reports results for a complete **4 models × 3 augmentations × 3 seed
 | ResNet-50 | noaug, specaug, mixup0.2 | 42, 100, 786 | **DONE** | **DONE** |
 | VGG16 | noaug, specaug, mixup0.2 | 42, 100, 786 | **DONE** | **DONE** |
 
-**BirdNET zero-shot** (no fine-tuning):
-- 16 kHz — all 7,200 clips: **97.94% accuracy**, macro AUC 0.9913 — confirmed and locked.
-- 44.1 kHz — test split (695 clips, 80:10:10): **96.40% accuracy**, macro AUC 0.9857 — confirmed and locked.
+**BirdNET zero-shot** (no fine-tuning, all clips):
+- 16 kHz — 7,200 clips: **97.94% accuracy**, macro AUC 0.9913 — confirmed and locked.
+- 44.1 kHz — 6,950 clips: **98.06% accuracy**, macro AUC 0.9922 — confirmed and locked.
 
 **Split**: All training uses the 80:10:10 MIP split (`metadata16khz/splits_mip_80_10_10.csv`).
 
@@ -422,7 +433,7 @@ All random operations are seeded for reproducibility:
 
 ## Performance Benchmarks
 
-**Zero-shot baseline**: BirdNET v2.4 — 16 kHz: **97.94%** (all 7,200 clips); 44.1 kHz: **96.40%** (695 test clips, 80:10:10 split); both confirmed and locked.
+**Zero-shot baseline**: BirdNET v2.4 — 16 kHz: **97.94%** (7,200 clips); 44.1 kHz: **98.06%** (6,950 clips); both on full dataset, no split, confirmed and locked.
 
 **CNN results**: pending verification — do not publish until confirmed from `results_16k_linux/` and `results_44k_linux/`.
 
