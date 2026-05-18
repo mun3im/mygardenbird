@@ -85,13 +85,7 @@ This CSV serves as the ground truth manifest for splitting and training.
 ```
 source_id,species_common,species_scientific,quality_grade,cc_license,type_label,latitude,longitude,country
 ```
-- `cc_license`: Creative Commons licence as an SPDX identifier (e.g. `CC-BY-NC-SA-4.0`), converted from the raw XC API URL by `_lic_to_spdx()`.
-
-To backfill `cc_license` into an existing `recordings.csv` without re-running Stage 6:
-```bash
-python backfill_cc_license.py  # uses config defaults
-```
-The backfill script also checks `per_species_csv_old/` for recordings that were later filtered out of the current Stage 1 CSVs.
+- `cc_license`: Creative Commons licence as an SPDX identifier (e.g. `CC-BY-NC-SA-4.0`), converted from the raw XC API URL by `_lic_to_spdx()` in Stage 6.
 
 ### Stage 7: Data Splitting
 
