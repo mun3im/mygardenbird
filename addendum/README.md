@@ -24,9 +24,6 @@ addendum/
 └── README.md
 ```
 
-Audio WAV files are **not** tracked in this repository. Download them from
-Zenodo alongside the core dataset:
-
 > **Zenodo**: https://doi.org/10.5281/zenodo.18694053 *(addendum included)*
 
 Place the downloaded species folders at the same level as the core species:
