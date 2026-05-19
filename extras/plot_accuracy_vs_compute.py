@@ -12,24 +12,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
-OUT_DIR = Path("/home/muneim/Dropbox/Paper Scientific Data/fig")
+OUT_DIR = Path("/Users/mun3im/Dropbox/Paper2_Scientific Data/fig")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-# mean ± sd from Table 6 (16 kHz, Mixup alpha=0.2, 3 seeds)
+# mean ± sd: 16 kHz, Mel, Mixup alpha=0.2, 3 seeds (42/100/786), 12-species dataset
 models = [
     "MobileNetV3-Small",
     "EfficientNet-B0",
     "ResNet-50",
 ]
-means  = np.array([93.50, 97.67, 97.33])
-stds   = np.array([ 0.93,  0.50,  0.44])
-mflops = np.array([  56,    390,  4100])   # from keras/torchinfo @ 224×224 input
+means  = np.array([92.41, 96.39, 94.63])
+stds   = np.array([ 0.64,  0.69,  0.07])
+mflops = np.array([  56,    390,  4100])  # from keras/torchinfo @ 224×224 input
 
-colours = ["#E69F00", "#56B4E9", "#CC79A7"]   # Okabe-Ito (yellow, blue, pink)
+colours = ["#E69F00", "#56B4E9", "#CC79A7"]  # Okabe-Ito
 markers = ["o", "s", "^"]
-offsets_x = [0, 0, 0]           # label nudge (log units)
-offsets_y = [0.35, -0.55, 0.35] # label nudge (accuracy units)
+offsets_y = [0.35, 0.35, -0.50]  # label nudge (accuracy units)
 
 # ── Figure ────────────────────────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(5.5, 4.2))
@@ -50,14 +49,15 @@ for i, (model, mean, std, mf, col, mk) in enumerate(
         zorder=3,
         label=model,
     )
+    ha = "right" if i == 1 else "left"
+    xmult = 0.52 if i == 1 else 1.18
     ax.annotate(
         model,
         xy=(mf, mean),
-        xytext=(mf * (1.18 if i != 1 else 0.52),
-                mean + offsets_y[i]),
+        xytext=(mf * xmult, mean + offsets_y[i]),
         fontsize=8,
         fontfamily="serif",
-        ha="left" if i != 1 else "right",
+        ha=ha,
         va="center",
         color="#333333",
     )
@@ -66,7 +66,7 @@ ax.set_xscale("log")
 ax.set_xlabel("Computational cost (MFLOPs, log scale)", fontsize=9,
               fontfamily="serif")
 ax.set_ylabel("Mean test accuracy (%)", fontsize=9, fontfamily="serif")
-ax.set_xlim(20, 12000)
+ax.set_xlim(20, 15000)
 ax.set_ylim(91, 99)
 ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
 ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.5))

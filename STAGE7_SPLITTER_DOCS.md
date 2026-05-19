@@ -74,7 +74,7 @@ Benchmark on 7200-sample dataset (12 classes, 1325 sources):
 ### MIP Splitter (Recommended)
 
 ```bash
-python Stage8a_splitter_mip.py /path/to/dataset \
+python Stage7_splitter_mip.py /path/to/dataset \
     --train_ratio 0.75 --val_ratio 0.10 --test_ratio 0.15 \
     --output ./seabird_splits_mip_75_10_15.csv \
     --seed 42
@@ -83,7 +83,7 @@ python Stage8a_splitter_mip.py /path/to/dataset \
 ### Genetic Algorithm Splitter
 
 ```bash
-python Stage8b_splitter_genetic_algorithm.py /path/to/dataset \
+python Stage7a_splitter_genetic_algorithm.py /path/to/dataset \
     --train_ratio 0.75 --val_ratio 0.10 --test_ratio 0.15 \
     --output ./seabird_splits_ga_75_10_15.csv \
     --seed 42
@@ -92,7 +92,7 @@ python Stage8b_splitter_genetic_algorithm.py /path/to/dataset \
 ### Simulated Annealing Splitter
 
 ```bash
-python Stage8c_splitter_simulated_annealing.py /path/to/dataset \
+python Stage7b_splitter_simulated_annealing.py /path/to/dataset \
     --train_ratio 0.75 --val_ratio 0.10 --test_ratio 0.15 \
     --output ./seabird_splits_sa_75_10_15.csv \
     --seed 42

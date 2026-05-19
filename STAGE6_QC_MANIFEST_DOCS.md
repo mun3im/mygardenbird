@@ -1,6 +1,6 @@
 # Stage 7: Clip Quality Control and Manifest Generation
 
-`Stage7_clip_qc_manifest.py` analyses every extracted WAV clip, runs quality
+`Stage6_clip_qc_manifest.py` analyses every extracted WAV clip, runs quality
 checks, and writes two normalised CSV tables that serve as the dataset catalogue
 for all downstream stages.
 
@@ -108,10 +108,10 @@ diagnostic rather than gatekeeping.
 
 ```bash
 # Default paths from config.py
-python Stage7_clip_qc_manifest.py
+python Stage6_clip_qc_manifest.py
 
 # Custom paths
-python Stage7_clip_qc_manifest.py /path/to/extracted_segments \
+python Stage6_clip_qc_manifest.py /path/to/extracted_segments \
     --output-dir /path/to/dataset \
     --metadata-dir /path/to/per_species_csv
 ```
