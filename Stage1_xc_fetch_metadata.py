@@ -144,10 +144,19 @@ def _fetch_all_records(query_tag: str, api_key: str) -> Optional[List[dict]]:
     return all_records
 
 
-def _save_records_csv(records: List[dict], common_name: str, output_dir: str) -> str:
+def _save_records_csv(
+    records: List[dict],
+    common_name: str,
+    output_dir: str,
+    lon_min: float = LONGITUDE_MIN,
+    lon_max: float = LONGITUDE_MAX,
+    no_region_filter: bool = False,
+    min_duration: float = 3.0,
+) -> str:
     """Save REGIONAL-FILTERED records to CSV.
 
-    Applies regional filtering (lon 60-140 OR ASEAN) + duration >=3s before saving.
+    Applies regional filtering (lon_min–lon_max OR ASEAN) + duration >=min_duration
+    before saving.  Pass no_region_filter=True to skip the geographic filter entirely.
     This eliminates duplicate filtering in Stage 2.
 
     An empty records list produces a header-only CSV so the species still
@@ -155,7 +164,7 @@ def _save_records_csv(records: List[dict], common_name: str, output_dir: str) ->
 
     Uses English common name for filename (e.g., "Javan_Myna.csv").
     """
-    MIN_LENGTH_S = 3.0
+    MIN_LENGTH_S = min_duration
 
     df = pd.DataFrame(records)
 
@@ -189,23 +198,26 @@ def _save_records_csv(records: List[dict], common_name: str, output_dir: str) ->
         if "file" in df.columns:
             df = df[df["file"].notna() & (df["file"].astype(str).str.strip() != "")]
 
-        # Regional subset: 60 < longitude < 140 OR ASEAN countries (for missing lon)
-        df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
-
-        # Condition 1: Valid longitude in range [60, 140]
-        lon_mask = df["_lon"].notna() & (df["_lon"] > LONGITUDE_MIN) & (df["_lon"] < LONGITUDE_MAX)
-
-        # Condition 2: Missing longitude AND country in ASEAN list
-        missing_lon_mask = df["_lon"].isna()
-        if "cnt" in df.columns:
-            asean_mask = df["cnt"].isin(ASEAN_COUNTRIES)
-            fallback_mask = missing_lon_mask & asean_mask
+        # Regional subset: lon_min < longitude < lon_max OR ASEAN countries (for missing lon)
+        if no_region_filter:
+            pass  # keep all records regardless of geography
         else:
-            fallback_mask = pd.Series([False] * len(df), index=df.index)
+            df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
 
-        # Combine: longitude range OR (missing lon AND ASEAN country)
-        df = df[lon_mask | fallback_mask].copy()
-        df.drop(columns=["_lon"], inplace=True)
+            # Condition 1: Valid longitude in range [lon_min, lon_max]
+            lon_mask = df["_lon"].notna() & (df["_lon"] > lon_min) & (df["_lon"] < lon_max)
+
+            # Condition 2: Missing longitude AND country in ASEAN list
+            missing_lon_mask = df["_lon"].isna()
+            if "cnt" in df.columns:
+                asean_mask = df["cnt"].isin(ASEAN_COUNTRIES)
+                fallback_mask = missing_lon_mask & asean_mask
+            else:
+                fallback_mask = pd.Series([False] * len(df), index=df.index)
+
+            # Combine: longitude range OR (missing lon AND ASEAN country)
+            df = df[lon_mask | fallback_mask].copy()
+            df.drop(columns=["_lon"], inplace=True)
 
         # Filter by minimum duration
         if "length_seconds" in df.columns:
@@ -222,7 +234,16 @@ def _save_records_csv(records: List[dict], common_name: str, output_dir: str) ->
 # ── fetch command ────────────────────────────────────────────────────────────
 
 
-def fetch_metadata(species_list, output_dir: str, api_key: str, dry_run: bool):
+def fetch_metadata(
+    species_list,
+    output_dir: str,
+    api_key: str,
+    dry_run: bool,
+    lon_min: float = LONGITUDE_MIN,
+    lon_max: float = LONGITUDE_MAX,
+    no_region_filter: bool = False,
+    min_duration: float = 3.0,
+):
     """Fetch XC metadata for each species in *species_list*.
 
     Also saves global statistics (before regional filtering) to global_stats.json
@@ -277,7 +298,12 @@ def fetch_metadata(species_list, output_dir: str, api_key: str, dry_run: bool):
         }
 
         # Save regional-filtered CSV
-        _save_records_csv(records, common, output_dir)
+        _save_records_csv(
+            records, common, output_dir,
+            lon_min=lon_min, lon_max=lon_max,
+            no_region_filter=no_region_filter,
+            min_duration=min_duration,
+        )
 
     # Save global stats to JSON for ranking
     stats_path = os.path.join(output_dir, "global_stats.json")
@@ -476,6 +502,22 @@ def main():
         "--dry-run", action="store_true",
         help="Show what would be fetched without making API calls.",
     )
+    parser.add_argument(
+        "--lon-min", type=float, default=LONGITUDE_MIN,
+        help=f"Minimum longitude for regional filter (default: {LONGITUDE_MIN}).",
+    )
+    parser.add_argument(
+        "--lon-max", type=float, default=LONGITUDE_MAX,
+        help=f"Maximum longitude for regional filter (default: {LONGITUDE_MAX}).",
+    )
+    parser.add_argument(
+        "--no-region-filter", action="store_true",
+        help="Disable geographic filtering entirely (keep all recordings worldwide).",
+    )
+    parser.add_argument(
+        "--min-duration", type=float, default=3.0,
+        help="Minimum recording duration in seconds (default: 3.0).",
+    )
     args = parser.parse_args()
 
     # resolve species list
@@ -507,8 +549,11 @@ def main():
     print("=" * 80)
     print("WHAT THIS DOES:")
     print("  - Fetches recording metadata from Xeno-Canto API for target species")
-    print("  - Filters recordings by region (longitude 60-140° OR ASEAN countries)")
-    print("  - Filters by duration (≥3 seconds) and downloadability")
+    if args.no_region_filter:
+        print("  - Geographic filter: DISABLED (all worldwide recordings kept)")
+    else:
+        print(f"  - Filters recordings by region (longitude {args.lon_min}–{args.lon_max}° OR ASEAN countries)")
+    print(f"  - Filters by duration (≥{args.min_duration}s) and downloadability")
     print("  - Saves ONLY regional-filtered records to per-species CSV files")
     print("  - Saves global stats (before filtering) to global_stats.json")
     print("  - Generates regional ranking with global comparison")
@@ -543,7 +588,13 @@ def main():
 
     if not args.rank_only:
         api_key = _load_api_key(args.api_key)
-        fetch_metadata(species_list, output_dir, api_key, args.dry_run)
+        fetch_metadata(
+            species_list, output_dir, api_key, args.dry_run,
+            lon_min=args.lon_min,
+            lon_max=args.lon_max,
+            no_region_filter=args.no_region_filter,
+            min_duration=args.min_duration,
+        )
 
     if not args.dry_run:
         rank_from_csvs(output_dir)
