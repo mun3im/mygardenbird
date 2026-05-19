@@ -18,7 +18,7 @@ import matplotlib.gridspec as gridspec
 
 QC_CSV   = Path("/Volumes/Evo/MYGARDENBIRD/metadata16khz/qc_report.csv")
 SEG_DIR  = Path("/Volumes/Evo/MYGARDENBIRD/mygardenbird16khz")
-OUT_DIR  = Path("/Users/mun3im/Dropbox/Paper Scientific Data/fig")
+OUT_DIR  = Path("/home/muneim/Dropbox/Paper2_Scientific Data/fig")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 N_MELS   = 128
@@ -60,15 +60,15 @@ for sp in species_list:
                     break
 
 # ---------------------------------------------------------------------------
-# Plot: 2×5 grid
+# Plot: 3×4 grid (12 species)
 # ---------------------------------------------------------------------------
-n_rows = 2
-n_cols = 5
+n_rows = 3
+n_cols = 4
 
-fig = plt.figure(figsize=(15, 6))
-gs  = gridspec.GridSpec(n_rows, n_cols, hspace=0.35, wspace=0.25)
+fig = plt.figure(figsize=(14, 9))
+gs  = gridspec.GridSpec(n_rows, n_cols, hspace=0.40, wspace=0.25)
 
-for idx, sp in enumerate(species_list[:10]):  # First 10 species
+for idx, sp in enumerate(species_list[:12]):  # All 12 species
     if sp not in representative:
         print(f"  Warning: no clip found for {sp}")
         continue

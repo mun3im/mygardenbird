@@ -15,18 +15,19 @@ import matplotlib.ticker as ticker
 import pandas as pd
 
 MANIFEST = Path("/Volumes/Evo/MYGARDENBIRD/project_csv/recordings.csv")
-OUT_DIR  = Path("/Users/mun3im/Dropbox/Paper Scientific Data/fig")
+OUT_DIR  = Path("/home/muneim/Dropbox/Paper2_Scientific Data/fig")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 EXCLUDE = {"Common myna", "Zebra dove"}
 
-# Okabe-Ito colours for quality A B C
+# Okabe-Ito colours for quality A B C D
 QUALITY_COLOURS = {
     "A": "#009E73",
     "B": "#56B4E9",
     "C": "#E69F00",
+    "D": "#CC3311",
 }
-QUALITY_LABELS = {"A": "Quality A", "B": "Quality B", "C": "Quality C"}
+QUALITY_LABELS = {"A": "Quality A", "B": "Quality B", "C": "Quality C", "D": "Quality D"}
 
 # ---------------------------------------------------------------------------
 df = pd.read_csv(MANIFEST)
@@ -37,10 +38,10 @@ quality_ct = (df.groupby(["species_common", "quality_grade"])
               .size()
               .unstack(fill_value=0))
 # Ensure consistent column order (only A, B, C)
-for q in ["A", "B", "C"]:
+for q in ["A", "B", "C", "D"]:
     if q not in quality_ct.columns:
         quality_ct[q] = 0
-quality_ct = quality_ct[["A", "B", "C"]]
+quality_ct = quality_ct[["A", "B", "C", "D"]]
 
 # Sort species by Quality A count descending, then by Quality B count descending
 quality_ct = quality_ct.sort_values(["A", "B"], ascending=False)
@@ -58,7 +59,7 @@ fig, (ax1, ax2) = plt.subplots(
 
 # --- (a) ---
 bottom = pd.Series([0] * len(quality_ct), index=quality_ct.index)
-for quality in ["A", "B", "C"]:
+for quality in ["A", "B", "C", "D"]:
     vals = quality_ct[quality]
     ax1.bar(
         range(len(quality_ct)), vals,
