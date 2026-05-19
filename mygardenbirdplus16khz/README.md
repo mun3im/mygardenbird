@@ -109,14 +109,6 @@ splits_plus = pd.concat([splits_core, splits_add], ignore_index=True)
 The combined dataset has **8,400 clips** across **14 species** (600 per species)
 at 16 kHz, derived from **1,610 unique source recordings**.
 
-## No 44.1 kHz subset
-
-A 44.1 kHz addendum is not provided. Common Myna recordings sourced outside the
-ASEAN/Indo-Malayan region (which were necessary to reach 600 clips) were
-downloaded as MP3 rather than FLAC and are not available at native ≥44.1 kHz.
-Only 75 Common Myna clips could be extracted at that rate from available FLACs,
-making a balanced two-species 44.1 kHz subset unachievable without re-downloading
-the full non-regional corpus.
 
 ## Licence
 
