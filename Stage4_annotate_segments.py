@@ -415,8 +415,7 @@ def interactive_segment_detector(audio_path):
     ax_spec.set_ylim(FREQ_MIN, _freq_cutoff)
     
 
-    plt.tight_layout()
-    plt.subplots_adjust(bottom=0.36)
+    plt.subplots_adjust(left=0.08, right=0.97, top=0.95, bottom=0.36)
 
     # ── Widgets ──────────────────────────────────────────────────────────────
     # Layout: info bar at top, then 4 sliders spaced 0.055 apart, then buttons row
