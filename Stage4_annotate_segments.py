@@ -250,28 +250,53 @@ def detect_sound_blobs(S_det, sr, threshold_mult=INITIAL_THRESHOLD_MULT,
 
     return events_with_bounds, binary_mask
 
+def compute_display_bounds(S_db_full, freqs_full, sr, start_s, end_s,
+                           energy_thresh_db=-20):
+    """
+    Return (t_lo, t_hi, flo, fhi) tightly enclosing vocal energy in [start_s, end_s].
+    Uses the display spectrogram (n_fft=2048) for accurate time and frequency resolution.
+    Frames/bins within energy_thresh_db dB of the window peak are considered active.
+    """
+    total_frames = S_db_full.shape[1]
+    t0 = max(0, int(start_s * sr / DISPLAY_HOP))
+    t1 = min(total_frames, int(end_s * sr / DISPLAY_HOP) + 1)
+    if t0 >= t1:
+        return start_s, end_s, FREQ_MIN, float(freqs_full[-1])
+
+    window = S_db_full[:, t0:t1]
+    peak = window.max()
+    thresh = peak + energy_thresh_db
+
+    # Frequency bounds — rows with any active frame
+    freq_active = (window.max(axis=1) >= thresh)
+    freq_idx = np.where(freq_active)[0]
+    if len(freq_idx) == 0:
+        flo, fhi = FREQ_MIN, float(freqs_full[-1])
+    else:
+        flo = max(float(freqs_full[freq_idx[0]]), FREQ_MIN)
+        fhi = float(freqs_full[freq_idx[-1]])
+        pad = (fhi - flo) * 0.1
+        flo = max(FREQ_MIN, flo - pad)
+        fhi = min(float(freqs_full[-1]), fhi + pad)
+
+    # Time bounds — columns with any active frequency bin
+    time_active = (window.max(axis=0) >= thresh)
+    col_idx = np.where(time_active)[0]
+    if len(col_idx) == 0:
+        t_lo, t_hi = start_s, end_s
+    else:
+        t_lo = (t0 + col_idx[0])  * DISPLAY_HOP / sr
+        t_hi = (t0 + col_idx[-1]) * DISPLAY_HOP / sr
+
+    return t_lo, t_hi, flo, fhi
+
+
 def compute_freq_bounds(S_db_full, freqs_full, sr, start_s, end_s,
                         energy_thresh_db=-20):
-    """
-    Return (flo, fhi) in Hz tightly enclosing the vocal energy in [start_s, end_s].
-    Uses the display spectrogram (n_fft=2048) for accurate frequency resolution.
-    Bins within energy_thresh_db dB of the per-frame peak are considered active.
-    """
-    t0 = int(start_s * sr / DISPLAY_HOP)
-    t1 = min(S_db_full.shape[1], int(end_s * sr / DISPLAY_HOP) + 1)
-    if t0 >= t1:
-        return FREQ_MIN, float(freqs_full[-1])
-
-    energy = S_db_full[:, t0:t1].max(axis=1)   # peak dB per frequency bin
-    peak = energy.max()
-    idx = np.where(energy >= peak + energy_thresh_db)[0]
-    if len(idx) == 0:
-        return FREQ_MIN, float(freqs_full[-1])
-
-    flo = max(float(freqs_full[idx[0]]), FREQ_MIN)
-    fhi = float(freqs_full[idx[-1]])
-    pad = (fhi - flo) * 0.1
-    return max(FREQ_MIN, flo - pad), min(float(freqs_full[-1]), fhi + pad)
+    """Return (flo, fhi) only — used by create_fixed_segments for yellow box height."""
+    _, _, flo, fhi = compute_display_bounds(
+        S_db_full, freqs_full, sr, start_s, end_s, energy_thresh_db)
+    return flo, fhi
 
 
 def create_fixed_segments(events_with_bounds, audio_duration,
@@ -493,9 +518,11 @@ def interactive_segment_detector(audio_path):
         spec_segment_rects.clear()
         event_rects.clear()
 
-        # Cyan boxes: raw Sprengel blob extents (variable width, original algo)
-        for (start, end, fmin, fmax) in events_with_bounds:
-            r = patches.Rectangle((start, fmin), end - start, fmax - fmin,
+        # Cyan boxes: Sprengel blob extents refined via display STFT
+        for (start, end, _fmin, _fmax) in events_with_bounds:
+            t_lo, t_hi, flo, fhi = compute_display_bounds(
+                S_db_full, freqs_full, sr, start, end)
+            r = patches.Rectangle((t_lo, flo), t_hi - t_lo, fhi - flo,
                                    linewidth=1.2, edgecolor='cyan', facecolor='none',
                                    linestyle='--', alpha=0.8, zorder=4)
             ax_spec.add_patch(r)
