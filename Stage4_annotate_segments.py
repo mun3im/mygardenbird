@@ -397,7 +397,7 @@ def interactive_segment_detector(audio_path):
 
     # Waveform plot
     ax_wave.plot(times_waveform, y, color='black', linewidth=0.5)
-    ax_wave.set_title('Waveform — 3 s segments (drag to reposition; click on spectrogram to delete)', fontsize=10)
+    ax_wave.set_title('Waveform — drag a segment to reposition', fontsize=10)
     ax_wave.set_ylabel('Amplitude')
     ax_wave.set_xlim(0, audio_duration)
     ax_wave.set_xlabel('Time (s)')
@@ -409,7 +409,7 @@ def interactive_segment_detector(audio_path):
     img = ax_spec.imshow(S_db_full[_freq_slice, :], aspect='auto', origin='lower',
                          extent=[0, audio_duration, freqs_full[0], freqs_full[_freq_slice].max()],
                          cmap='plasma', vmin=-60, vmax=0)
-    ax_spec.set_title('Spectrogram — Yellow: 3 s segments (drag waveform to reposition; click spec to delete)', fontsize=10)
+    ax_spec.set_title('Spectrogram — click a yellow box to delete a segment', fontsize=10)
     ax_spec.set_ylabel('Frequency (Hz)')
     ax_spec.set_xlim(0, audio_duration)
     ax_spec.set_ylim(FREQ_MIN, _freq_cutoff)
@@ -699,8 +699,8 @@ def interactive_segment_detector(audio_path):
     print("  • Erosion cycles:     Remove noise / shrink blobs (0=none, 4=aggressive)")
     print("  • Dilation cycles:    Reconnect / expand blobs   (0=none, 4=aggressive)")
     print("  • Max Freq Display:   Pan the spectrogram frequency axis")
-    print("  • Drag blue segments on waveform to reposition")
-    print("  • Click a yellow box in the spectrogram to delete it")
+    print("  • Waveform:     drag a segment to reposition")
+    print("  • Spectrogram:  click a yellow box to delete a segment")
     print("  • Press 'Play' to listen to the recording")
     print("="*60 + "\n")
     
