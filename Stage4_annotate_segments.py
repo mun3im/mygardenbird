@@ -426,7 +426,6 @@ def interactive_segment_detector(audio_path):
     ax_erode         = plt.axes([SL_LEFT, 0.220, SL_W, SL_H])
     ax_dilate        = plt.axes([SL_LEFT, 0.165, SL_W, SL_H])
     ax_freq_cutoff   = plt.axes([SL_LEFT, 0.110, SL_W, SL_H])
-    ax_toggle        = plt.axes([0.01, 0.13, 0.10, 0.04])
     ax_save      = plt.axes([0.82, 0.04, 0.08, 0.04])
     ax_quit      = plt.axes([0.01, 0.04, 0.08, 0.04])
     ax_play_stop = plt.axes([0.12, 0.04, 0.08, 0.04])
@@ -447,7 +446,6 @@ def interactive_segment_detector(audio_path):
     save_button = widgets.Button(ax_save, 'Save')
     quit_button = widgets.Button(ax_quit, 'Quit')
     play_stop_button = widgets.Button(ax_play_stop, 'Play')
-    toggle_blobs = widgets.CheckButtons(ax_toggle, ['Show blobs'], [False])
     ax_info.axis('off')
 
     # Information display
@@ -463,7 +461,6 @@ def interactive_segment_detector(audio_path):
     # ── Drawing Helpers ──────────────────────────────────────────────────────
     wave_segment_patches = []
     spec_segment_rects = []
-    event_rects = []
 
     def update_detection(val=None):
         nonlocal binary_mask, events_with_bounds
@@ -490,20 +487,8 @@ def interactive_segment_detector(audio_path):
             p.remove()
         for r in spec_segment_rects:
             r.remove()
-        for r in event_rects:
-            r.remove()
         wave_segment_patches.clear()
         spec_segment_rects.clear()
-        event_rects.clear()
-
-        # Draw detected events as cyan outlines (only when toggle is active)
-        if toggle_blobs.get_status()[0]:
-            for (start, end, fmin, fmax) in events_with_bounds:
-                event_rect = patches.Rectangle((start, fmin), end - start, fmax - fmin,
-                                              linewidth=1.5, edgecolor='cyan', facecolor='none',
-                                              linestyle='--', alpha=0.7)
-                ax_spec.add_patch(event_rect)
-                event_rects.append(event_rect)
 
         # Draw final segments
         for i, (start, end) in enumerate(current_segments):
@@ -660,7 +645,6 @@ def interactive_segment_detector(audio_path):
     slider_thresh.on_changed(update_detection)
     slider_erode.on_changed(update_detection)
     slider_dilate.on_changed(update_detection)
-    toggle_blobs.on_clicked(lambda _: update_segments())
     def update_freq_cutoff(val):
         cutoff = slider_freq_cutoff.val
         fs = freqs_full <= cutoff
