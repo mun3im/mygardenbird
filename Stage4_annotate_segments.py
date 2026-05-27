@@ -379,45 +379,11 @@ def interactive_segment_detector(audio_path):
     img = ax_spec.imshow(S_db_full[_freq_slice, :], aspect='auto', origin='lower',
                          extent=[0, audio_duration, freqs_full[0], freqs_full[_freq_slice].max()],
                          cmap='plasma', vmin=-60, vmax=0)
-    ax_spec.set_title('Spectrogram — Blue: Sprengel active-column overlay, Yellow: 3 s segments', fontsize=10)
+    ax_spec.set_title('Spectrogram — Yellow: 3 s segments (drag waveform to reposition; click spec to delete)', fontsize=10)
     ax_spec.set_ylabel('Frequency (Hz)')
     ax_spec.set_xlim(0, audio_duration)
     ax_spec.set_ylim(FREQ_MIN, _freq_cutoff)
     
-    # Store binary overlay spans (one axvspan per active run from col indicator)
-    _overlay_spans = []
-
-    def _col_active_from_mask(mask):
-        """Collapse 2-D Sprengel binary mask to 1-D column indicator, with 4×1 smoothing."""
-        col = mask.any(axis=0)
-        struct = np.ones((4,), dtype=bool)
-        col = binary_dilation(col, structure=struct)
-        col = binary_dilation(col, structure=struct)
-        return col
-
-    def update_binary_overlay():
-        for sp in _overlay_spans:
-            sp.remove()
-        _overlay_spans.clear()
-
-        col = _col_active_from_mask(binary_mask)
-        t_axis = np.arange(len(col)) * SPRENGEL_HOP / sr
-
-        in_run = False
-        t0 = 0.0
-        for i, active in enumerate(col):
-            if active and not in_run:
-                t0 = t_axis[i]
-                in_run = True
-            elif not active and in_run:
-                sp = ax_spec.axvspan(t0, t_axis[i - 1], alpha=0.25, color='blue', zorder=3)
-                _overlay_spans.append(sp)
-                in_run = False
-        if in_run:
-            sp = ax_spec.axvspan(t0, t_axis[-1], alpha=0.25, color='blue', zorder=3)
-            _overlay_spans.append(sp)
-
-    update_binary_overlay()
 
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.36)
@@ -479,8 +445,6 @@ def interactive_segment_detector(audio_path):
             erode_cycles=int(slider_erode.val),
             dilate_cycles=int(slider_dilate.val),
         )
-
-        update_binary_overlay()
 
         new_segs, new_bnds = create_fixed_segments(events_with_bounds, audio_duration)
         current_segments[:] = new_segs
