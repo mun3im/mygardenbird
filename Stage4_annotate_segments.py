@@ -251,11 +251,13 @@ def detect_sound_blobs(S_det, sr, threshold_mult=INITIAL_THRESHOLD_MULT,
     return events_with_bounds, binary_mask
 
 def compute_display_bounds(S_db_full, freqs_full, sr, start_s, end_s,
-                           energy_thresh_db=-20):
+                           drop_db=20):
     """
     Return (t_lo, t_hi, flo, fhi) tightly enclosing vocal energy in [start_s, end_s].
-    Uses the display spectrogram (n_fft=2048) for accurate time and frequency resolution.
-    Frames/bins within energy_thresh_db dB of the window peak are considered active.
+    Uses the display spectrogram (n_fft=2048, ref=global max, so values are ≤ 0 dB).
+    Threshold = window_peak - drop_db (relative to the local window peak, not global).
+    Frequency: rows whose max across the window is within drop_db of the window peak.
+    Time:      columns whose max across frequency is within drop_db of the window peak.
     """
     total_frames = S_db_full.shape[1]
     t0 = max(0, int(start_s * sr / DISPLAY_HOP))
@@ -263,12 +265,12 @@ def compute_display_bounds(S_db_full, freqs_full, sr, start_s, end_s,
     if t0 >= t1:
         return start_s, end_s, FREQ_MIN, float(freqs_full[-1])
 
-    window = S_db_full[:, t0:t1]
-    peak = window.max()
-    thresh = peak + energy_thresh_db
+    window = S_db_full[:, t0:t1]           # shape (F, T_win)
+    win_peak = window.max()                 # local peak (≤ 0 dB)
+    thresh = win_peak - drop_db             # e.g. peak=-3 → thresh=-23
 
-    # Frequency bounds — rows with any active frame
-    freq_active = (window.max(axis=1) >= thresh)
+    # Frequency bounds
+    freq_active = window.max(axis=1) >= thresh
     freq_idx = np.where(freq_active)[0]
     if len(freq_idx) == 0:
         flo, fhi = FREQ_MIN, float(freqs_full[-1])
@@ -279,8 +281,8 @@ def compute_display_bounds(S_db_full, freqs_full, sr, start_s, end_s,
         flo = max(FREQ_MIN, flo - pad)
         fhi = min(float(freqs_full[-1]), fhi + pad)
 
-    # Time bounds — columns with any active frequency bin
-    time_active = (window.max(axis=0) >= thresh)
+    # Time bounds
+    time_active = window.max(axis=0) >= thresh
     col_idx = np.where(time_active)[0]
     if len(col_idx) == 0:
         t_lo, t_hi = start_s, end_s
@@ -291,11 +293,10 @@ def compute_display_bounds(S_db_full, freqs_full, sr, start_s, end_s,
     return t_lo, t_hi, flo, fhi
 
 
-def compute_freq_bounds(S_db_full, freqs_full, sr, start_s, end_s,
-                        energy_thresh_db=-20):
+def compute_freq_bounds(S_db_full, freqs_full, sr, start_s, end_s, drop_db=20):
     """Return (flo, fhi) only — used by create_fixed_segments for yellow box height."""
     _, _, flo, fhi = compute_display_bounds(
-        S_db_full, freqs_full, sr, start_s, end_s, energy_thresh_db)
+        S_db_full, freqs_full, sr, start_s, end_s, drop_db)
     return flo, fhi
 
 
