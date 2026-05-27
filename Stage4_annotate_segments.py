@@ -425,11 +425,12 @@ def interactive_segment_detector(audio_path):
     # ── Widgets ──────────────────────────────────────────────────────────────
     # Layout: info bar at top, then 4 sliders spaced 0.055 apart, then buttons row
     SL_LEFT, SL_W, SL_H = 0.22, 0.55, 0.025
-    ax_info       = plt.axes([0.22, 0.04, 0.58, 0.04])
+    ax_info          = plt.axes([0.22, 0.04, 0.58, 0.04])
     ax_energy_thresh = plt.axes([SL_LEFT, 0.275, SL_W, SL_H])
-    ax_erode      = plt.axes([SL_LEFT, 0.220, SL_W, SL_H])
-    ax_dilate     = plt.axes([SL_LEFT, 0.165, SL_W, SL_H])
+    ax_erode         = plt.axes([SL_LEFT, 0.220, SL_W, SL_H])
+    ax_dilate        = plt.axes([SL_LEFT, 0.165, SL_W, SL_H])
     ax_freq_cutoff   = plt.axes([SL_LEFT, 0.110, SL_W, SL_H])
+    ax_toggle        = plt.axes([0.01, 0.13, 0.10, 0.04])
     ax_save      = plt.axes([0.82, 0.04, 0.08, 0.04])
     ax_quit      = plt.axes([0.01, 0.04, 0.08, 0.04])
     ax_play_stop = plt.axes([0.12, 0.04, 0.08, 0.04])
@@ -450,6 +451,7 @@ def interactive_segment_detector(audio_path):
     save_button = widgets.Button(ax_save, 'Save')
     quit_button = widgets.Button(ax_quit, 'Quit')
     play_stop_button = widgets.Button(ax_play_stop, 'Play')
+    toggle_blobs = widgets.CheckButtons(ax_toggle, ['Show blobs'], [False])
     ax_info.axis('off')
 
     # Information display
@@ -498,13 +500,14 @@ def interactive_segment_detector(audio_path):
         spec_segment_rects.clear()
         event_rects.clear()
 
-        # Draw detected events as cyan outlines
-        for (start, end, fmin, fmax) in events_with_bounds:
-            event_rect = patches.Rectangle((start, fmin), end - start, fmax - fmin,
-                                          linewidth=1.5, edgecolor='cyan', facecolor='none',
-                                          linestyle='--', alpha=0.7)
-            ax_spec.add_patch(event_rect)
-            event_rects.append(event_rect)
+        # Draw detected events as cyan outlines (only when toggle is active)
+        if toggle_blobs.get_status()[0]:
+            for (start, end, fmin, fmax) in events_with_bounds:
+                event_rect = patches.Rectangle((start, fmin), end - start, fmax - fmin,
+                                              linewidth=1.5, edgecolor='cyan', facecolor='none',
+                                              linestyle='--', alpha=0.7)
+                ax_spec.add_patch(event_rect)
+                event_rects.append(event_rect)
 
         # Draw final segments
         for i, (start, end) in enumerate(current_segments):
@@ -661,6 +664,7 @@ def interactive_segment_detector(audio_path):
     slider_thresh.on_changed(update_detection)
     slider_erode.on_changed(update_detection)
     slider_dilate.on_changed(update_detection)
+    toggle_blobs.on_clicked(lambda _: update_segments())
     def update_freq_cutoff(val):
         cutoff = slider_freq_cutoff.val
         fs = freqs_full <= cutoff
