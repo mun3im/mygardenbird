@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-STAGE 5: BLOB-BASED SEGMENT DETECTION (Fixed Index Bug)
-========================================================
+Stage4_find_segments_interactive.py — Interactive bird vocalization annotator.
+
+Blob detection follows Sprengel et al. (2016) §2.1: STFT normalised to [0,1],
+row×column median threshold, 4×4 erosion+dilation, column indicator vector,
+two 4×1 smoothing dilation passes.
 """
 
 import argparse
@@ -18,7 +21,6 @@ import numpy as np
 import librosa
 import librosa.display
 from scipy.ndimage import binary_dilation, binary_erosion, label, find_objects
-from scipy.signal import medfilt
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -26,31 +28,28 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.widgets as widgets
 from matplotlib.animation import FuncAnimation
-from matplotlib.colors import LinearSegmentedColormap
-
 import sounddevice as sd
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-FREQ_MIN               = 200      # Hz - minimum frequency for analysis
-FREQ_MAX               = 8000     # Hz - maximum frequency for analysis
+FREQ_MIN               = 200      # Hz - minimum frequency for display / analysis
+FREQ_MAX               = 8000     # Hz - maximum frequency for display / analysis
 DEFAULT_FREQ_CUTOFF    = 8000     # Hz — default max frequency for spectrogram display
-STFT_FRAME_SIZE        = 2048
-HOP_LENGTH             = STFT_FRAME_SIZE // 4  # 512
+
+# Sprengel (2016) §2.1 detection STFT: window 512, 75% overlap
+SPRENGEL_N_FFT         = 512
+SPRENGEL_HOP           = 128      # 75% overlap
+
+# Display STFT (larger window, better frequency resolution for the viewer)
+DISPLAY_N_FFT          = 2048
+DISPLAY_HOP            = DISPLAY_N_FFT // 4
+
 SEGMENT_DURATION       = 3.0      # seconds — fixed clip length
 MAX_SEGMENTS           = 10
 
-# Default thresholds
-INITIAL_ENERGY_THRESHOLD = 0.3    # 0-1, higher = less sensitive
-INITIAL_MIN_BLOB_DURATION = 0.15  # seconds
-INITIAL_MAX_BLOB_GAP = 0.6        # seconds - max gap to merge blobs
-
-# PCEN parameters
-PCEN_TIME_CONSTANT     = 0.09     # seconds
-PCEN_EPS               = 1e-6
-PCEN_POWER             = 0.25
-PCEN_GAIN              = 0.98
+# Sprengel threshold multiplier (cells must exceed N × row_median AND N × col_median)
+INITIAL_THRESHOLD_MULT = 3.0      # lower = more sensitive
 
 # Handle config import gracefully
 try:
@@ -145,152 +144,108 @@ def calculate_enhanced_snr(y, sr, segments, fade_buffer=0.1):
     }
 
 
-# ── PCEN Spectrogram ─────────────────────────────────────────────────────────
-def compute_pcen_spectrogram(y, sr, n_fft=STFT_FRAME_SIZE, hop_length=HOP_LENGTH,
-                              fmin=FREQ_MIN, fmax=FREQ_MAX):
-    """Compute spectrogram: PCEN for detection, plain dB for display."""
-    S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
-    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
-
-    # PCEN — used only for blob detection
-    S_pcen = librosa.pcen(S, sr=sr, hop_length=hop_length,
-                          time_constant=PCEN_TIME_CONSTANT,
-                          eps=PCEN_EPS, power=PCEN_POWER, gain=PCEN_GAIN)
-
-    # Slice to frequency range of interest
-    freq_mask = (freqs >= fmin) & (freqs <= fmax)
-    S_pcen_masked = S_pcen[freq_mask, :]
-    freqs_masked = freqs[freq_mask]
-
-    # Plain log-power dB for display — matches Audacity's appearance
-    S_db = librosa.power_to_db(S[freq_mask, :] ** 2, ref=np.max)
-
-    return S_pcen_masked, S_db, freqs_masked, freq_mask
-
-
-# ── BLOB-BASED DETECTION ─────────────────────────────────────────────────────
-def detect_sound_blobs(S_pcen, sr, freqs_sliced=None, hop_length=HOP_LENGTH,
-                       energy_threshold=INITIAL_ENERGY_THRESHOLD,
-                       erode_cycles=2, dilate_cycles=2):
+# ── Spectrogram computation ───────────────────────────────────────────────────
+def compute_spectrograms(y, sr):
     """
-    Detect sound events using per-band adaptive thresholding + spectral flux.
-
-    Process:
-    1. Per-frequency-band median subtraction (removes steady noise per band)
-    2. Spectral flux (frame-to-frame difference) highlights onsets
-    3. Combine: band-normalised PCEN weighted by flux
-    4. Binary threshold (user controlled)
-    5. Erode N / Dilate M
-    6. Find connected components
+    Return two spectrograms:
+    - S_norm: Sprengel detection spectrogram (n_fft=512, hop=128, normalised to [0,1])
+    - S_db:   Display spectrogram (n_fft=2048, hop=512, log-power dB)
+    Also returns the display frequency axis (sliced to FREQ_MIN–FREQ_MAX).
     """
+    # Detection spectrogram — Sprengel §2.1 parameters
+    S_det = np.abs(librosa.stft(y, n_fft=SPRENGEL_N_FFT, hop_length=SPRENGEL_HOP))
+    max_val = S_det.max()
+    if max_val > 0:
+        S_det /= max_val  # normalise to [0, 1] — do NOT log
 
-    # freqs_sliced corresponds to the rows of S_pcen (already frequency-masked)
-    if freqs_sliced is None:
-        freqs_sliced = librosa.fft_frequencies(sr=sr, n_fft=STFT_FRAME_SIZE)
-        freq_mask = (freqs_sliced >= FREQ_MIN) & (freqs_sliced <= FREQ_MAX)
-        freqs_sliced = freqs_sliced[freq_mask]
+    # Display spectrogram — larger window for better frequency resolution
+    S_disp = np.abs(librosa.stft(y, n_fft=DISPLAY_N_FFT, hop_length=DISPLAY_HOP))
+    disp_freqs = librosa.fft_frequencies(sr=sr, n_fft=DISPLAY_N_FFT)
+    freq_mask = (disp_freqs >= FREQ_MIN) & (disp_freqs <= FREQ_MAX)
+    S_db = librosa.power_to_db(S_disp[freq_mask, :] ** 2, ref=np.max)
+    freqs_display = disp_freqs[freq_mask]
 
-    # 1. Per-band median subtraction — each frequency row has its own baseline removed
-    band_median = np.median(S_pcen, axis=1, keepdims=True)
-    S_denoised = np.maximum(S_pcen - band_median, 0)
+    return S_det, S_db, freqs_display
 
-    # 2. Spectral flux — forward difference across time, per band
-    flux = np.diff(S_denoised, axis=1, prepend=S_denoised[:, :1])
-    flux = np.maximum(flux, 0)  # keep only increases (onsets)
 
-    # 3. Combine denoised energy with flux to favour transient events
-    S_combined = S_denoised * (1.0 + flux)
+# ── BLOB-BASED DETECTION — Sprengel (2016) §2.1 ──────────────────────────────
+def detect_sound_blobs(S_det, sr, threshold_mult=INITIAL_THRESHOLD_MULT,
+                       erode_cycles=1, dilate_cycles=1):
+    """
+    Sprengel et al. (2016) §2.1 signal/noise separation:
 
-    # 4. Normalize to 0-1 and threshold
-    S_norm = (S_combined - S_combined.min()) / (S_combined.max() - S_combined.min() + 1e-8)
-    binary_mask = S_norm > energy_threshold
+    1. Each cell is 1 iff value > threshold_mult × row_median
+                           AND value > threshold_mult × col_median.
+    2. Binary erosion with 4×4 element (erode_cycles passes).
+    3. Binary dilation with 4×4 element (dilate_cycles passes).
+    4. Column indicator vector: col active if any row is 1.
+    5. Two smoothing binary dilation passes with 4×1 (time-only) element.
+    6. Extract contiguous active runs → (start_s, end_s) events.
 
-    # 5. Morphological operations — erode and dilate independently
-    structure = np.ones((3, 3))
+    Returns (events_with_bounds, binary_mask_2d) where events_with_bounds is
+    a list of (start_s, end_s, fmin_hz, fmax_hz).
+    binary_mask_2d has the same shape as S_det and is used for the blue overlay
+    (re-projected onto the display spectrogram time axis by the caller).
+    """
+    # 1. Row × column median threshold
+    row_med = np.median(S_det, axis=1, keepdims=True)  # shape (F, 1)
+    col_med = np.median(S_det, axis=0, keepdims=True)  # shape (1, T)
+    binary_mask = (S_det > threshold_mult * row_med) & (S_det > threshold_mult * col_med)
 
+    # 2–3. Morphological cleaning with 4×4 structuring element
+    struct_4x4 = np.ones((4, 4), dtype=bool)
     for _ in range(erode_cycles):
-        binary_mask = binary_erosion(binary_mask, structure=structure)
+        binary_mask = binary_erosion(binary_mask, structure=struct_4x4)
     for _ in range(dilate_cycles):
-        binary_mask = binary_dilation(binary_mask, structure=structure)
+        binary_mask = binary_dilation(binary_mask, structure=struct_4x4)
 
-    # 4. Find connected components (blobs)
-    labeled_mask, num_blobs = label(binary_mask)
-    blob_slices = find_objects(labeled_mask)
+    # 4. Column indicator vector
+    col_active = binary_mask.any(axis=0)  # shape (T,)
 
-    # 5. Extract temporal bounds from each blob
-    time_frames = S_pcen.shape[1]
-    time_axis = np.arange(time_frames) * hop_length / sr
+    # 5. Two smoothing dilation passes with 4×1 (time-only) element
+    struct_4x1 = np.ones((4,), dtype=bool)
+    for _ in range(2):
+        col_active = binary_dilation(col_active, structure=struct_4x1)
+
+    # 6. Extract contiguous runs of active columns → time intervals
+    time_frames = S_det.shape[1]
+    time_axis = np.arange(time_frames) * SPRENGEL_HOP / sr
 
     raw_events = []
+    in_run = False
+    run_start = 0
+    for t, active in enumerate(col_active):
+        if active and not in_run:
+            run_start = t
+            in_run = True
+        elif not active and in_run:
+            raw_events.append((time_axis[run_start], time_axis[t - 1]))
+            in_run = False
+    if in_run:
+        raw_events.append((time_axis[run_start], time_axis[min(time_frames - 1, time_frames - 1)]))
 
-    for blob_slice in blob_slices:
-        if blob_slice is None:
-            continue
-
-        t_start = max(0, blob_slice[1].start)
-        t_end = min(time_frames, blob_slice[1].stop)
-
-        start_time = time_axis[t_start]
-        end_time = time_axis[t_end - 1] if t_end > t_start else time_axis[t_start]
-        raw_events.append((start_time, end_time))
-
-    # 6. Merge events that are adjacent (blobs touching in time)
-    if len(raw_events) > 1:
-        raw_events.sort(key=lambda x: x[0])
-        merged_events = []
-        current_start, current_end = raw_events[0]
-
-        for start, end in raw_events[1:]:
-            if start <= current_end:
-                current_end = max(current_end, end)
-            else:
-                merged_events.append((current_start, current_end))
-                current_start, current_end = start, end
-        merged_events.append((current_start, current_end))
-        raw_events = merged_events
-
-    # 7. Refine frequency bounds for each event
+    # Frequency bounds: use the 2-D binary mask rows for each event
     events_with_bounds = []
+    det_freqs = librosa.fft_frequencies(sr=sr, n_fft=SPRENGEL_N_FFT)
 
     for start, end in raw_events:
-        # Find time indices
-        t_start = max(0, int(start * sr / hop_length))
-        t_end = min(time_frames, int(end * sr / hop_length) + 1)
-
-        if t_start >= t_end:
+        t0 = max(0, int(start * sr / SPRENGEL_HOP))
+        t1 = min(time_frames, int(end * sr / SPRENGEL_HOP) + 1)
+        if t0 >= t1:
             events_with_bounds.append((start, end, FREQ_MIN, FREQ_MAX))
             continue
 
-        # Use denoised energy (per-band median removed) for frequency bounds
-        energy_per_freq = np.mean(S_denoised[:, t_start:t_end], axis=1)
-        peak_energy = np.max(energy_per_freq)
-
-        if peak_energy <= 0:
-            events_with_bounds.append((start, end, FREQ_MIN, FREQ_MAX))
-            continue
-
-        # Find frequency bins with significant energy (above 25% of peak)
-        threshold = peak_energy * 0.25
-        active_bins = np.where(energy_per_freq > threshold)[0]
-
-        if len(active_bins) == 0:
+        active_rows = binary_mask[:, t0:t1].any(axis=1)
+        active_freqs = det_freqs[active_rows]
+        if len(active_freqs) == 0:
             events_with_bounds.append((start, end, FREQ_MIN, FREQ_MAX))
         else:
-            # freqs_sliced rows match S_pcen rows directly
-            active_freqs = freqs_sliced[active_bins]
-
-            if len(active_freqs) > 0:
-                fmin = max(active_freqs[0], FREQ_MIN)
-                fmax = min(active_freqs[-1], FREQ_MAX)
-            else:
-                fmin, fmax = FREQ_MIN, FREQ_MAX
-
-            # Add 10% padding
-            freq_padding = (fmax - fmin) * 0.1
-            fmin = max(FREQ_MIN, fmin - freq_padding)
-            fmax = min(FREQ_MAX, fmax + freq_padding)
-
-            events_with_bounds.append((start, end, fmin, fmax))
+            flo = max(float(active_freqs[0]), FREQ_MIN)
+            fhi = min(float(active_freqs[-1]), FREQ_MAX)
+            pad = (fhi - flo) * 0.1
+            events_with_bounds.append((start, end,
+                                        max(FREQ_MIN, flo - pad),
+                                        min(FREQ_MAX, fhi + pad)))
 
     return events_with_bounds, binary_mask
 
@@ -365,13 +320,13 @@ def interactive_segment_detector(audio_path):
         print(f"File {audio_path} is too short ({audio_duration:.2f}s < 3s). Skipping.")
         return
 
-    # Compute PCEN spectrogram
-    print("\nComputing PCEN spectrogram...")
-    S_pcen, S_db, freqs, freq_mask = compute_pcen_spectrogram(y, sr)
-    
-    # Initial detection
+    # Compute spectrograms
+    print("\nComputing spectrograms...")
+    S_det, S_db, freqs = compute_spectrograms(y, sr)
+
+    # Initial detection (Sprengel §2.1)
     print("Running blob detection...")
-    events_with_bounds, binary_mask = detect_sound_blobs(S_pcen, sr, freqs_sliced=freqs)
+    events_with_bounds, binary_mask = detect_sound_blobs(S_det, sr)
     detected_segs, detected_bounds = create_fixed_segments(events_with_bounds, audio_duration)
     print(f"Found {len(detected_segs)} candidate segments")
 
@@ -421,25 +376,44 @@ def interactive_segment_detector(audio_path):
     img = ax_spec.imshow(S_db, aspect='auto', origin='lower',
                          extent=[0, audio_duration, freqs[0], freqs[-1]],
                          cmap='plasma', vmin=-60, vmax=0)
-    ax_spec.set_title('PCEN Spectrogram — Blue: binary mask overlay, Yellow: detected segments', fontsize=10)
+    ax_spec.set_title('Spectrogram — Blue: Sprengel active-column overlay, Yellow: 3 s segments', fontsize=10)
     ax_spec.set_ylabel('Frequency (Hz)')
     ax_spec.set_xlim(0, audio_duration)
     ax_spec.set_ylim(FREQ_MIN, min(DEFAULT_FREQ_CUTOFF, sr/2))
     
-    # Store binary overlay reference
-    binary_overlay = None
-    
+    # Store binary overlay spans (one axvspan per active run from col indicator)
+    _overlay_spans = []
+
+    def _col_active_from_mask(mask):
+        """Collapse 2-D Sprengel binary mask to 1-D column indicator, with 4×1 smoothing."""
+        col = mask.any(axis=0)
+        struct = np.ones((4,), dtype=bool)
+        col = binary_dilation(col, structure=struct)
+        col = binary_dilation(col, structure=struct)
+        return col
+
     def update_binary_overlay():
-        nonlocal binary_overlay
-        if binary_overlay is not None:
-            binary_overlay.remove()
-        # binary_mask rows already correspond to the freq-sliced S_pcen
-        mask_display = np.ma.masked_where(~binary_mask, binary_mask)
-        binary_overlay = ax_spec.imshow(mask_display, aspect='auto', origin='lower',
-                                        extent=[0, audio_duration, freqs[0], freqs[-1]],
-                                        cmap=LinearSegmentedColormap.from_list('blue_alpha', [(0,0,1,0), (0,0,1,0.3)]),
-                                        alpha=0.3, vmin=0, vmax=1)
-    
+        for sp in _overlay_spans:
+            sp.remove()
+        _overlay_spans.clear()
+
+        col = _col_active_from_mask(binary_mask)
+        t_axis = np.arange(len(col)) * SPRENGEL_HOP / sr
+
+        in_run = False
+        t0 = 0.0
+        for i, active in enumerate(col):
+            if active and not in_run:
+                t0 = t_axis[i]
+                in_run = True
+            elif not active and in_run:
+                sp = ax_spec.axvspan(t0, t_axis[i - 1], alpha=0.25, color='blue', zorder=3)
+                _overlay_spans.append(sp)
+                in_run = False
+        if in_run:
+            sp = ax_spec.axvspan(t0, t_axis[-1], alpha=0.25, color='blue', zorder=3)
+            _overlay_spans.append(sp)
+
     update_binary_overlay()
 
     plt.tight_layout()
@@ -457,12 +431,12 @@ def interactive_segment_detector(audio_path):
     ax_quit      = plt.axes([0.01, 0.04, 0.08, 0.04])
     ax_play_stop = plt.axes([0.12, 0.04, 0.08, 0.04])
 
-    slider_energy = widgets.Slider(ax_energy_thresh, 'Energy Threshold (lower=more sensitive)', 0.05, 0.95,
-                                   valinit=INITIAL_ENERGY_THRESHOLD, valstep=0.01)
+    slider_thresh = widgets.Slider(ax_energy_thresh, 'Threshold × median (lower=more sensitive)', 1.0, 6.0,
+                                   valinit=INITIAL_THRESHOLD_MULT, valstep=0.25)
     slider_erode  = widgets.Slider(ax_erode,  'Erosion cycles (remove noise)', 0, 4,
-                                   valinit=2, valstep=1)
+                                   valinit=1, valstep=1)
     slider_dilate = widgets.Slider(ax_dilate, 'Dilation cycles (reconnect blobs)', 0, 4,
-                                   valinit=2, valstep=1)
+                                   valinit=1, valstep=1)
     slider_freq_cutoff = widgets.Slider(ax_freq_cutoff, 'Max Freq Display (Hz)', FREQ_MIN, sr/2,
                                         valinit=min(DEFAULT_FREQ_CUTOFF, sr/2), valstep=100)
     save_button = widgets.Button(ax_save, 'Save')
@@ -486,24 +460,19 @@ def interactive_segment_detector(audio_path):
     event_rects = []
 
     def update_detection(val=None):
-        """Update detection based on current slider values"""
-        nonlocal binary_mask, events_with_bounds, binary_overlay
-        
+        nonlocal binary_mask, events_with_bounds
+
         print("  Re-running blob detection...")
         events_with_bounds, binary_mask = detect_sound_blobs(
-            S_pcen, sr,
-            freqs_sliced=freqs,
-            energy_threshold=slider_energy.val,
+            S_det, sr,
+            threshold_mult=slider_thresh.val,
             erode_cycles=int(slider_erode.val),
             dilate_cycles=int(slider_dilate.val),
         )
-        
-        # Update binary mask overlay
+
         update_binary_overlay()
-        
-        # Create fixed segments
+
         new_segs, new_bnds = create_fixed_segments(events_with_bounds, audio_duration)
-        
         current_segments[:] = new_segs
         current_bounds[:] = new_bnds
         update_segments()
@@ -681,7 +650,7 @@ def interactive_segment_detector(audio_path):
     play_stop_button.on_clicked(toggle_play_stop)
 
     # ── Slider Callbacks ─────────────────────────────────────────────────────
-    slider_energy.on_changed(update_detection)
+    slider_thresh.on_changed(update_detection)
     slider_erode.on_changed(update_detection)
     slider_dilate.on_changed(update_detection)
     slider_freq_cutoff.on_changed(lambda val: ax_spec.set_ylim(FREQ_MIN, val) or fig.canvas.draw_idle())
@@ -710,12 +679,12 @@ def interactive_segment_detector(audio_path):
     
     print("\n" + "="*60)
     print("INTERACTIVE CONTROLS:")
-    print("  • Energy Threshold: Lower = more sensitive, Higher = fewer blobs")
-    print("  • Erosion cycles:   Remove noise / shrink blobs (0=none, 4=aggressive)")
-    print("  • Dilation cycles:  Reconnect / expand blobs   (0=none, 4=aggressive)")
-    print("  • Max Freq Display: Pan the spectrogram frequency axis")
-    print("  • Drag blue segments horizontally to reposition")
-    print("  • Click on a segment in the spectrogram to delete it")
+    print("  • Threshold × median: Lower = more sensitive (Sprengel multiplier N)")
+    print("  • Erosion cycles:     Remove noise / shrink blobs (0=none, 4=aggressive)")
+    print("  • Dilation cycles:    Reconnect / expand blobs   (0=none, 4=aggressive)")
+    print("  • Max Freq Display:   Pan the spectrogram frequency axis")
+    print("  • Drag blue segments on waveform to reposition")
+    print("  • Click a yellow box in the spectrogram to delete it")
     print("  • Press 'Play' to listen to the recording")
     print("="*60 + "\n")
     
@@ -734,19 +703,19 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     print("="*80)
-    print("BLOB-BASED SEGMENT DETECTION (Binary Mask + Morphological Operations)")
+    print("SPRENGEL (2016) BLOB DETECTION — Stage4_find_segments_interactive.py")
     print("="*80)
-    print("HOW IT WORKS:")
-    print("  1. PCEN spectrogram — noise-robust representation for detection")
-    print("  2. Per-band median subtraction removes steady noise per frequency row")
-    print("  3. Spectral flux weights onset frames, suppressing sustained tones")
-    print("  4. Binary threshold on combined score (blue overlay)")
-    print("  5. Erode N / Dilate M to clean and reconnect blobs")
-    print("  6. Connected components become sound events (cyan outlines)")
-    print("  7. Fixed 3s segments created around events (yellow boxes)")
+    print("HOW IT WORKS (Sprengel et al. 2016, §2.1):")
+    print("  1. STFT (Hanning, n_fft=512, hop=128) normalised to [0,1]")
+    print("  2. Binary mask: cell=1 iff value > N×row_median AND > N×col_median")
+    print("  3. Erosion (4×4) + Dilation (4×4) to remove noise / reconnect blobs")
+    print("  4. Column indicator vector: active if any row in that frame is 1")
+    print("  5. Two 4×1 smoothing dilation passes to fill short gaps")
+    print("  6. Contiguous active columns → sound events (blue overlay)")
+    print("  7. Each event padded to fixed 3s segment (yellow boxes)")
     print("="*80)
 
-    _STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".stage5_blob_state.json")
+    _STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".stage4_state.json")
 
     def _load_last_dir():
         try:
