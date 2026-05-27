@@ -34,8 +34,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 FREQ_MIN               = 200      # Hz - minimum frequency for display / analysis
-FREQ_MAX               = 8000     # Hz - maximum frequency for display / analysis
 DEFAULT_FREQ_CUTOFF    = 8000     # Hz — default max frequency for spectrogram display
+MAX_FREQ_SLIDER        = 22050    # Hz — slider upper bound (fs/2 for 44.1 kHz MP3/FLAC)
 
 # Sprengel (2016) §2.1 detection STFT: window 512, 75% overlap
 SPRENGEL_N_FFT         = 512
@@ -148,9 +148,9 @@ def calculate_enhanced_snr(y, sr, segments, fade_buffer=0.1):
 def compute_spectrograms(y, sr):
     """
     Return two spectrograms:
-    - S_norm: Sprengel detection spectrogram (n_fft=512, hop=128, normalised to [0,1])
-    - S_db:   Display spectrogram (n_fft=2048, hop=512, log-power dB)
-    Also returns the display frequency axis (sliced to FREQ_MIN–FREQ_MAX).
+    - S_det:      Sprengel detection spectrogram (n_fft=512, hop=128, normalised to [0,1])
+    - S_db_full:  Display spectrogram, full bandwidth FREQ_MIN–fs/2 (n_fft=2048, log-power dB)
+    - freqs_full: Frequency axis for S_db_full (Hz)
     """
     # Detection spectrogram — Sprengel §2.1 parameters
     S_det = np.abs(librosa.stft(y, n_fft=SPRENGEL_N_FFT, hop_length=SPRENGEL_HOP))
@@ -158,14 +158,14 @@ def compute_spectrograms(y, sr):
     if max_val > 0:
         S_det /= max_val  # normalise to [0, 1] — do NOT log
 
-    # Display spectrogram — larger window for better frequency resolution
+    # Display spectrogram — full bandwidth so the freq slider can pan freely
     S_disp = np.abs(librosa.stft(y, n_fft=DISPLAY_N_FFT, hop_length=DISPLAY_HOP))
     disp_freqs = librosa.fft_frequencies(sr=sr, n_fft=DISPLAY_N_FFT)
-    freq_mask = (disp_freqs >= FREQ_MIN) & (disp_freqs <= FREQ_MAX)
-    S_db = librosa.power_to_db(S_disp[freq_mask, :] ** 2, ref=np.max)
-    freqs_display = disp_freqs[freq_mask]
+    freq_mask = disp_freqs >= FREQ_MIN
+    S_db_full = librosa.power_to_db(S_disp[freq_mask, :] ** 2, ref=np.max)
+    freqs_full = disp_freqs[freq_mask]
 
-    return S_det, S_db, freqs_display
+    return S_det, S_db_full, freqs_full
 
 
 # ── BLOB-BASED DETECTION — Sprengel (2016) §2.1 ──────────────────────────────
@@ -232,20 +232,20 @@ def detect_sound_blobs(S_det, sr, threshold_mult=INITIAL_THRESHOLD_MULT,
         t0 = max(0, int(start * sr / SPRENGEL_HOP))
         t1 = min(time_frames, int(end * sr / SPRENGEL_HOP) + 1)
         if t0 >= t1:
-            events_with_bounds.append((start, end, FREQ_MIN, FREQ_MAX))
+            events_with_bounds.append((start, end, FREQ_MIN, sr / 2))
             continue
 
         active_rows = binary_mask[:, t0:t1].any(axis=1)
         active_freqs = det_freqs[active_rows]
         if len(active_freqs) == 0:
-            events_with_bounds.append((start, end, FREQ_MIN, FREQ_MAX))
+            events_with_bounds.append((start, end, FREQ_MIN, sr / 2))
         else:
             flo = max(float(active_freqs[0]), FREQ_MIN)
-            fhi = min(float(active_freqs[-1]), FREQ_MAX)
+            fhi = min(float(active_freqs[-1]), sr / 2)
             pad = (fhi - flo) * 0.1
             events_with_bounds.append((start, end,
                                         max(FREQ_MIN, flo - pad),
-                                        min(FREQ_MAX, fhi + pad)))
+                                        min(sr / 2, fhi + pad)))
 
     return events_with_bounds, binary_mask
 
@@ -322,7 +322,7 @@ def interactive_segment_detector(audio_path):
 
     # Compute spectrograms
     print("\nComputing spectrograms...")
-    S_det, S_db, freqs = compute_spectrograms(y, sr)
+    S_det, S_db_full, freqs_full = compute_spectrograms(y, sr)
 
     # Initial detection (Sprengel §2.1)
     print("Running blob detection...")
@@ -339,7 +339,7 @@ def interactive_segment_detector(audio_path):
         loaded = load_annotation(ann_path)
         if loaded:
             current_segments = list(loaded)
-            current_bounds = [(FREQ_MIN, FREQ_MAX) for _ in loaded]
+            current_bounds = [(FREQ_MIN, sr / 2) for _ in loaded]
             title_suffix = "  [loaded from annotation]"
             print(f"Loaded {len(current_segments)} segment(s) from {ann_path}")
         else:
@@ -372,14 +372,16 @@ def interactive_segment_detector(audio_path):
     ax_wave.set_xlabel('Time (s)')
     ax_wave.grid(True, alpha=0.3)
 
-    # Spectrogram — freqs[0]/freqs[-1] are the actual bin edges of the sliced matrix
-    img = ax_spec.imshow(S_db, aspect='auto', origin='lower',
-                         extent=[0, audio_duration, freqs[0], freqs[-1]],
+    # Spectrogram — display slice up to DEFAULT_FREQ_CUTOFF initially
+    _freq_cutoff = min(DEFAULT_FREQ_CUTOFF, sr / 2)
+    _freq_slice = freqs_full <= _freq_cutoff
+    img = ax_spec.imshow(S_db_full[_freq_slice, :], aspect='auto', origin='lower',
+                         extent=[0, audio_duration, freqs_full[0], freqs_full[_freq_slice].max()],
                          cmap='plasma', vmin=-60, vmax=0)
     ax_spec.set_title('Spectrogram — Blue: Sprengel active-column overlay, Yellow: 3 s segments', fontsize=10)
     ax_spec.set_ylabel('Frequency (Hz)')
     ax_spec.set_xlim(0, audio_duration)
-    ax_spec.set_ylim(FREQ_MIN, min(DEFAULT_FREQ_CUTOFF, sr/2))
+    ax_spec.set_ylim(FREQ_MIN, _freq_cutoff)
     
     # Store binary overlay spans (one axvspan per active run from col indicator)
     _overlay_spans = []
@@ -437,8 +439,9 @@ def interactive_segment_detector(audio_path):
                                    valinit=1, valstep=1)
     slider_dilate = widgets.Slider(ax_dilate, 'Dilation cycles (reconnect blobs)', 0, 4,
                                    valinit=1, valstep=1)
-    slider_freq_cutoff = widgets.Slider(ax_freq_cutoff, 'Max Freq Display (Hz)', FREQ_MIN, sr/2,
-                                        valinit=min(DEFAULT_FREQ_CUTOFF, sr/2), valstep=100)
+    slider_freq_cutoff = widgets.Slider(ax_freq_cutoff, 'Max Freq Display (Hz)', FREQ_MIN,
+                                        min(MAX_FREQ_SLIDER, sr / 2),
+                                        valinit=min(DEFAULT_FREQ_CUTOFF, sr / 2), valstep=100)
     save_button = widgets.Button(ax_save, 'Save')
     quit_button = widgets.Button(ax_quit, 'Quit')
     play_stop_button = widgets.Button(ax_play_stop, 'Play')
@@ -653,7 +656,15 @@ def interactive_segment_detector(audio_path):
     slider_thresh.on_changed(update_detection)
     slider_erode.on_changed(update_detection)
     slider_dilate.on_changed(update_detection)
-    slider_freq_cutoff.on_changed(lambda val: ax_spec.set_ylim(FREQ_MIN, val) or fig.canvas.draw_idle())
+    def update_freq_cutoff(val):
+        cutoff = slider_freq_cutoff.val
+        fs = freqs_full <= cutoff
+        img.set_data(S_db_full[fs, :])
+        img.set_extent([0, audio_duration, freqs_full[0], freqs_full[fs].max()])
+        ax_spec.set_ylim(FREQ_MIN, cutoff)
+        fig.canvas.draw_idle()
+
+    slider_freq_cutoff.on_changed(update_freq_cutoff)
 
     # ── Save / Quit ──────────────────────────────────────────────────────────
     def save_segments(event):
