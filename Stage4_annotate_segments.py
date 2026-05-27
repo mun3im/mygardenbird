@@ -425,7 +425,7 @@ def interactive_segment_detector(audio_path):
     # ── Widgets ──────────────────────────────────────────────────────────────
     # Layout: info bar at top, then 4 sliders spaced 0.055 apart, then buttons row
     SL_LEFT, SL_W, SL_H = 0.22, 0.55, 0.025
-    ax_info       = plt.axes([SL_LEFT, 0.335, SL_W, 0.030])
+    ax_info       = plt.axes([0.22, 0.04, 0.58, 0.04])
     ax_energy_thresh = plt.axes([SL_LEFT, 0.275, SL_W, SL_H])
     ax_erode      = plt.axes([SL_LEFT, 0.220, SL_W, SL_H])
     ax_dilate     = plt.axes([SL_LEFT, 0.165, SL_W, SL_H])
