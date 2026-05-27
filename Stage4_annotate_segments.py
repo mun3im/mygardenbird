@@ -486,7 +486,6 @@ def interactive_segment_detector(audio_path):
     # ── Drawing Helpers ──────────────────────────────────────────────────────
     wave_segment_patches = []
     spec_segment_rects = []
-    event_rects = []
 
     def update_detection(val=None):
         nonlocal binary_mask, events_with_bounds
@@ -513,21 +512,8 @@ def interactive_segment_detector(audio_path):
             p.remove()
         for r in spec_segment_rects:
             r.remove()
-        for r in event_rects:
-            r.remove()
         wave_segment_patches.clear()
         spec_segment_rects.clear()
-        event_rects.clear()
-
-        # Cyan boxes: Sprengel blob extents refined via display STFT
-        for (start, end, _fmin, _fmax) in events_with_bounds:
-            t_lo, t_hi, flo, fhi = compute_display_bounds(
-                S_db_full, freqs_full, sr, start, end)
-            r = patches.Rectangle((t_lo, flo), t_hi - t_lo, fhi - flo,
-                                   linewidth=1.2, edgecolor='cyan', facecolor='none',
-                                   linestyle='--', alpha=0.8, zorder=4)
-            ax_spec.add_patch(r)
-            event_rects.append(r)
 
         # Draw final segments
         for i, (start, end) in enumerate(current_segments):
