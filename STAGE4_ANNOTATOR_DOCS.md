@@ -1,4 +1,4 @@
-# Stage4_find_segments_interactive.py — Annotator Documentation
+# Stage4_annotate_segments.py — Annotator Documentation
 
 Interactive GUI for identifying and annotating 3-second bird vocalization segments
 in Xeno-canto FLAC recordings. Used to build the
@@ -16,7 +16,7 @@ pip install numpy scipy librosa matplotlib sounddevice
 ## Running the tool
 
 ```bash
-python Stage4_find_segments_interactive.py
+python Stage4_annotate_segments.py
 ```
 
 A file dialog opens. Select a WAV, MP3, M4A, FLAC, or OGG audio file.
@@ -24,7 +24,7 @@ A file dialog opens. Select a WAV, MP3, M4A, FLAC, or OGG audio file.
 To set the starting directory for the file dialog:
 
 ```bash
-python Stage4_find_segments_interactive.py --sound-dir /path/to/audio/files
+python Stage4_annotate_segments.py --sound-dir /path/to/audio/files
 ```
 
 Files shorter than 3 seconds are skipped automatically.

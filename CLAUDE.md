@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MyGardenBird is an end-to-end pipeline for creating bird audio classification datasets from Xeno-Canto recordings. The pipeline downloads audio, annotates bird vocalizations using an interactive GUI, extracts 3-second clips, applies quality control, generates optimal train/val/test splits using Mixed Integer Programming, and trains CNN classifiers.
 
-**Dataset**: 7,200 manually verified 3-second clips across **12 Malaysian bird species** (600 per species), available on Zenodo: https://doi.org/10.5281/zenodo.18694053
+**Dataset**: 7,200 manually verified 3-second clips across **12 Malaysian bird species** (600 per species), available on Zenodo: https://doi.org/10.5281/zenodo.20306877
 
 ## Core Configuration
 
@@ -42,7 +42,7 @@ The pipeline is sequential - each Stage depends on outputs from previous stages:
 | 2 | `Stage2_xc_dload_all_from_species_list.py` | Download FLAC recordings |
 | 2a | `Stage2a_xc_dload_delta_by_id.py` | Download specific recording IDs (optional) |
 | 3 | `Stage3_audit_downloads.py` | Verify FLAC files against metadata |
-| 4 | `Stage4_find_segments_interactive.py` | **Interactive GUI annotator** |
+| 4 | `Stage4_annotate_segments.py` | **Interactive GUI annotator** |
 | 5 | `Stage5_extract_annotated_segments.py` | Extract 3-second WAV clips |
 | 5a | `Stage5a_find_most_confused.py` | Select best 600 clips per class (optional) |
 | 6 | `Stage6_clip_qc_manifest.py` | QC metrics and clips.csv manifest |
@@ -55,7 +55,7 @@ The pipeline is sequential - each Stage depends on outputs from previous stages:
 
 ### Stage 4: Interactive Annotation GUI
 
-The annotation GUI (`Stage4_find_segments_interactive.py`) is a critical manual step:
+The annotation GUI (`Stage4_annotate_segments.py`) is a critical manual step:
 
 - Uses spectrogram-based blob detection to suggest bird vocalization segments
 - User reviews/adjusts/deletes suggested segments via drag-and-drop interface
@@ -318,29 +318,6 @@ results_16k_macos/
 - Augmentation: `{noaug|specaug|mixup<alpha>}`
 - Seed: `seed{42|100|786}`
 
-## Remote Training via Dropbox Trigger System
-
-For training on a Linux machine behind NAT (no direct SSH from Mac):
-
-### Mac side (trigger training)
-```bash
-cd ~/Dropbox/Conda/MyGardenBird
-./TRIGGER_FROM_MAC.sh
-```
-
-### Linux side (auto-responds via cron)
-The `linux_auto_trainer.sh` script runs every minute via cron, checking for trigger files synced through Dropbox.
-
-**Setup** (one-time on Linux):
-```bash
-crontab -e
-# Add: * * * * * /bin/bash $HOME/Dropbox/Conda/MyGardenBird/linux_auto_trainer.sh
-```
-
-**Status monitoring**: Check `LINUX_STATUS.txt` (synced via Dropbox) for Linux agent heartbeat and training progress.
-
-See `TRIGGER_SYSTEM_GUIDE.md` for detailed setup.
-
 ## Data Leakage Prevention
 
 **Critical**: Clips from the same XC recording (source_id) must never appear in different splits.
@@ -399,7 +376,7 @@ pip install numpy scipy librosa soundfile requests tqdm matplotlib sounddevice p
 ## Key Files to Understand
 
 - `config.py`: All path configuration and species catalog
-- `Stage4_find_segments_interactive.py`: GUI annotator (manual review)
+- `Stage4_annotate_segments.py`: GUI annotator (manual review)
 - `Stage6_clip_qc_manifest.py`: QC metrics computation
 - `Stage7_eval_birdnet.py`: BirdNET v2.4 zero-shot evaluation (label quality validation)
 - `Stage8_splitter_mip.py`: Optimal splitting algorithm
@@ -429,7 +406,9 @@ All random operations are seeded for reproducibility:
 
 **Zero-shot baseline**: BirdNET v2.4 — 16 kHz: **97.94%** (7,200 clips); 44.1 kHz: **98.06%** (6,950 clips); both on full dataset, no split, confirmed and locked.
 
-**CNN results**: pending verification — do not publish until confirmed from `results_16k_linux/` and `results_44k_linux/`.
+**CNN results**: confirmed and locked. Canonical source: `results_16k_12sp_linux/` (16 kHz) and `results_44k_12sp_linux/` (44.1 kHz).
+
+**MobileNetV3-Small TFLite**: Measured 1.46 MB INT8 (`mobilenetv3s_12sp_int8.tflite`, TF 2.15, PTQ, 1.24M params). Paper updated to "approximately 1.5 MB". Previous 5.5 MB claim was wrong.
 
 **Splitter speed**: MIP solves 80:10:10 split in 1.7 seconds (vs 952s for Simulated Annealing)
 
