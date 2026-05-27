@@ -250,41 +250,66 @@ def detect_sound_blobs(S_det, sr, threshold_mult=INITIAL_THRESHOLD_MULT,
 
     return events_with_bounds, binary_mask
 
-def create_fixed_segments(events_with_bounds, audio_duration):
-    """Create fixed 3s segments centered on detected events"""
+def compute_freq_bounds(S_db_full, freqs_full, sr, start_s, end_s,
+                        energy_thresh_db=-20):
+    """
+    Return (flo, fhi) in Hz tightly enclosing the vocal energy in [start_s, end_s].
+    Uses the display spectrogram (n_fft=2048) for accurate frequency resolution.
+    Bins within energy_thresh_db dB of the per-frame peak are considered active.
+    """
+    t0 = int(start_s * sr / DISPLAY_HOP)
+    t1 = min(S_db_full.shape[1], int(end_s * sr / DISPLAY_HOP) + 1)
+    if t0 >= t1:
+        return FREQ_MIN, float(freqs_full[-1])
+
+    energy = S_db_full[:, t0:t1].max(axis=1)   # peak dB per frequency bin
+    peak = energy.max()
+    idx = np.where(energy >= peak + energy_thresh_db)[0]
+    if len(idx) == 0:
+        return FREQ_MIN, float(freqs_full[-1])
+
+    flo = max(float(freqs_full[idx[0]]), FREQ_MIN)
+    fhi = float(freqs_full[idx[-1]])
+    pad = (fhi - flo) * 0.1
+    return max(FREQ_MIN, flo - pad), min(float(freqs_full[-1]), fhi + pad)
+
+
+def create_fixed_segments(events_with_bounds, audio_duration,
+                          S_db_full=None, freqs_full=None, sr=None):
+    """Create fixed 3s segments centered on detected events."""
     half_seg = SEGMENT_DURATION / 2.0
     fixed_segs = []
     fixed_bounds = []
-    
+
     for start, end, fmin, fmax in events_with_bounds:
-        # Center on the middle of the event
         center = (start + end) / 2.0
         bs = max(0, center - half_seg)
         be = bs + SEGMENT_DURATION
-        
-        # Adjust if exceeds boundaries
         if be > audio_duration:
             be = audio_duration
             bs = max(0, be - SEGMENT_DURATION)
-        
+
+        if S_db_full is not None:
+            fmin, fmax = compute_freq_bounds(S_db_full, freqs_full, sr, bs, be)
+
         fixed_segs.append((bs, be))
         fixed_bounds.append((fmin, fmax))
-    
+
     # Deduplicate & enforce non-overlap
     fixed_segs.sort(key=lambda x: x[0])
     final_segments, final_bounds = [], []
     last_end = -SEGMENT_DURATION
-    
+
     for i, (s, e) in enumerate(fixed_segs):
         if s >= last_end and abs(e - s - SEGMENT_DURATION) < 0.01:
             final_segments.append((s, e))
             if i < len(fixed_bounds):
                 final_bounds.append(fixed_bounds[i])
             last_end = e
-        
+
         if len(final_segments) >= MAX_SEGMENTS:
             break
-    
+
     return final_segments, final_bounds
 
 
@@ -328,7 +353,9 @@ def interactive_segment_detector(audio_path):
     # Initial detection (Sprengel §2.1)
     print("Running blob detection...")
     events_with_bounds, binary_mask = detect_sound_blobs(S_det, sr)
-    detected_segs, detected_bounds = create_fixed_segments(events_with_bounds, audio_duration)
+    detected_segs, detected_bounds = create_fixed_segments(
+        events_with_bounds, audio_duration,
+        S_db_full=S_db_full, freqs_full=freqs_full, sr=sr)
     print(f"Found {len(detected_segs)} candidate segments")
 
     # Load existing annotation if available
@@ -340,7 +367,10 @@ def interactive_segment_detector(audio_path):
         loaded = load_annotation(ann_path)
         if loaded:
             current_segments = list(loaded)
-            current_bounds = [(FREQ_MIN, sr / 2) for _ in loaded]
+            current_bounds = [
+                compute_freq_bounds(S_db_full, freqs_full, sr, s, e)
+                for s, e in loaded
+            ]
             title_suffix = "  [loaded from annotation]"
             print(f"Loaded {len(current_segments)} segment(s) from {ann_path}")
         else:
@@ -446,7 +476,9 @@ def interactive_segment_detector(audio_path):
             dilate_cycles=int(slider_dilate.val),
         )
 
-        new_segs, new_bnds = create_fixed_segments(events_with_bounds, audio_duration)
+        new_segs, new_bnds = create_fixed_segments(
+            events_with_bounds, audio_duration,
+            S_db_full=S_db_full, freqs_full=freqs_full, sr=sr)
         current_segments[:] = new_segs
         current_bounds[:] = new_bnds
         update_segments()
