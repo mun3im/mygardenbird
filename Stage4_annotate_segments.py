@@ -35,7 +35,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
 # ── Configuration ─────────────────────────────────────────────────────────────
 FREQ_MIN               = 200      # Hz - minimum frequency for display / analysis
 DEFAULT_FREQ_CUTOFF    = 8000     # Hz — default max frequency for spectrogram display
-MAX_FREQ_SLIDER        = 22050    # Hz — slider upper bound (fs/2 for 44.1 kHz MP3/FLAC)
+# Nyquist frequencies for standard MP3 sample rates (8, 11.025, 12, 16, 22.05, 24, 32, 44.1, 48 kHz)
+MP3_NYQUIST_VALUES     = [4000, 5512, 6000, 8000, 11025, 12000, 16000, 22050, 24000]
 
 # Sprengel (2016) §2.1 detection STFT: window 512, 75% overlap
 SPRENGEL_N_FFT         = 512
@@ -439,9 +440,13 @@ def interactive_segment_detector(audio_path):
                                    valinit=1, valstep=1)
     slider_dilate = widgets.Slider(ax_dilate, 'Dilation cycles (reconnect blobs)', 0, 4,
                                    valinit=1, valstep=1)
-    slider_freq_cutoff = widgets.Slider(ax_freq_cutoff, 'Max Freq Display (Hz)', FREQ_MIN,
-                                        min(MAX_FREQ_SLIDER, sr / 2),
-                                        valinit=min(DEFAULT_FREQ_CUTOFF, sr / 2), valstep=100)
+    _freq_steps = [v for v in MP3_NYQUIST_VALUES if FREQ_MIN < v <= sr / 2]
+    if not _freq_steps:
+        _freq_steps = [int(sr / 2)]
+    _freq_init = min(_freq_steps, key=lambda v: abs(v - DEFAULT_FREQ_CUTOFF))
+    slider_freq_cutoff = widgets.Slider(ax_freq_cutoff, 'Max Freq Display (Hz)',
+                                        _freq_steps[0], _freq_steps[-1],
+                                        valinit=_freq_init, valstep=_freq_steps)
     save_button = widgets.Button(ax_save, 'Save')
     quit_button = widgets.Button(ax_quit, 'Quit')
     play_stop_button = widgets.Button(ax_play_stop, 'Play')
