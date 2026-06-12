@@ -1,7 +1,7 @@
 # Xeno-Canto v3 Metadata — Field Reference
 
 Source: XC API v3 (`https://xeno-canto.org/api/3/recordings`).
-Per-species CSVs in this directory are produced by `Stage1_xc_fetch_metadata.py`.
+Per-species CSVs in this directory are produced by `pipeline/Stage1_xc_fetch_metadata.py`.
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
