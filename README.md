@@ -74,7 +74,7 @@ python pipeline/Stage9_train_mygardenbird_multifeature.py \
 | Topic | Location |
 |---|---|
 | Pipeline guide, training matrix, hyperparameters | [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) |
-| Metadata schema / data dictionary | [`DATA_DICTIONARY.md`](DATA_DICTIONARY.md), [`project_csv/`](project_csv/README.md) |
+| Metadata schema / data dictionary | [`docs/DATA_DICTIONARY.md`](docs/DATA_DICTIONARY.md), [`project_csv/`](project_csv/README.md) |
 | Pre-generated splits & QC manifests | [`metadata16khz/`](metadata16khz/README.md), [`metadata44khz/`](metadata44khz/README.md) |
 | Stage-specific notes | [`docs/STAGE4_ANNOTATOR_DOCS.md`](docs/STAGE4_ANNOTATOR_DOCS.md), [`docs/STAGE6_QC_MANIFEST_DOCS.md`](docs/STAGE6_QC_MANIFEST_DOCS.md), [`docs/STAGE7_SPLITTER_DOCS.md`](docs/STAGE7_SPLITTER_DOCS.md), [`docs/STAGE8_TRAINER_DOCS.md`](docs/STAGE8_TRAINER_DOCS.md) |
 | CNN benchmark summaries | [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) (12-species), [`benchmark_summaries/`](benchmark_summaries/plus_16k_14species.md) (14-species) |
