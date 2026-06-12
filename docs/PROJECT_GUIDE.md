@@ -1,6 +1,7 @@
-# CLAUDE.md
+# MyGardenBird — Project Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This document describes the MyGardenBird pipeline, conventions, and reproduction
+steps for contributors and automated coding assistants working in this repository.
 
 ## Project Overview
 
@@ -10,7 +11,7 @@ MyGardenBird is an end-to-end pipeline for creating bird audio classification da
 
 ## Core Configuration
 
-All paths and species configuration are centralized in `config.py`. **Before running any script, edit these two constants**:
+All paths and species configuration are centralized in `pipeline/config.py`. **Before running any script, edit these two constants**:
 
 ```python
 PROJECT_ROOT = "/Volumes/Evo"     # Your storage mount point
@@ -38,24 +39,24 @@ The pipeline is sequential - each Stage depends on outputs from previous stages:
 
 | Stage | Script | Purpose |
 |-------|--------|---------|
-| 1 | `Stage1_xc_fetch_metadata.py` | Download XC metadata for active species |
-| 2 | `Stage2_xc_dload_all_from_species_list.py` | Download FLAC recordings |
-| 2a | `Stage2a_xc_dload_delta_by_id.py` | Download specific recording IDs (optional) |
-| 3 | `Stage3_audit_downloads.py` | Verify FLAC files against metadata |
-| 4 | `Stage4_annotate_segments.py` | **Interactive GUI annotator** |
-| 5 | `Stage5_extract_annotated_segments.py` | Extract 3-second WAV clips |
-| 5a | `Stage5a_find_most_confused.py` | Select best 600 clips per class (optional) |
-| 6 | `Stage6_clip_qc_manifest.py` | QC metrics and clips.csv manifest |
-| 7 | `Stage7_eval_birdnet.py` | **BirdNET zero-shot validation (label quality check)** |
-| 8 | `Stage8_splitter_mip.py` | **MIP-based splitting (recommended)** |
-| 8a | `Stage8a_splitter_genetic_algorithm.py` | GA-based splitting (alternative) |
-| 8b | `Stage8b_splitter_simulated_annealing.py` | SA-based splitting (alternative) |
-| 8c | `Stage8c_splitter_mip2.py` | MIP v2 with source-count balance (experimental) |
-| 9 | `Stage9_train_mygardenbird_multifeature.py` | Train CNNs (multiple architectures/features) |
+| 1 | `pipeline/Stage1_xc_fetch_metadata.py` | Download XC metadata for active species |
+| 2 | `pipeline/Stage2_xc_dload_all_from_species_list.py` | Download FLAC recordings |
+| 2a | `pipeline/Stage2a_xc_dload_delta_by_id.py` | Download specific recording IDs (optional) |
+| 3 | `pipeline/Stage3_audit_downloads.py` | Verify FLAC files against metadata |
+| 4 | `pipeline/Stage4_annotate_segments.py` | **Interactive GUI annotator** |
+| 5 | `pipeline/Stage5_extract_annotated_segments.py` | Extract 3-second WAV clips |
+| 5a | `pipeline/Stage5a_find_most_confused.py` | Select best 600 clips per class (optional) |
+| 6 | `pipeline/Stage6_clip_qc_manifest.py` | QC metrics and clips.csv manifest |
+| 7 | `pipeline/Stage7_eval_birdnet.py` | **BirdNET zero-shot validation (label quality check)** |
+| 8 | `pipeline/Stage8_splitter_mip.py` | **MIP-based splitting (recommended)** |
+| 8a | `pipeline/Stage8a_splitter_genetic_algorithm.py` | GA-based splitting (alternative) |
+| 8b | `pipeline/Stage8b_splitter_simulated_annealing.py` | SA-based splitting (alternative) |
+| 8c | `pipeline/Stage8c_splitter_mip2.py` | MIP v2 with source-count balance (experimental) |
+| 9 | `pipeline/Stage9_train_mygardenbird_multifeature.py` | Train CNNs (multiple architectures/features) |
 
 ### Stage 4: Interactive Annotation GUI
 
-The annotation GUI (`Stage4_annotate_segments.py`) is a critical manual step:
+The annotation GUI (`pipeline/Stage4_annotate_segments.py`) is a critical manual step:
 
 - Uses spectrogram-based blob detection to suggest bird vocalization segments
 - User reviews/adjusts/deletes suggested segments via drag-and-drop interface
@@ -68,7 +69,7 @@ The annotation GUI (`Stage4_annotate_segments.py`) is a critical manual step:
 
 ### Stage 6: Quality Control Metrics
 
-`Stage6_clip_qc_manifest.py` computes audio quality metrics for each 3-second clip:
+`pipeline/Stage6_clip_qc_manifest.py` computes audio quality metrics for each 3-second clip:
 
 - **SNR (dB)**: Signal-to-noise ratio using vocal envelope detection
 - **RMS (dB)**: Root mean square energy level
@@ -92,7 +93,7 @@ source_id,species_common,species_scientific,quality_grade,cc_license,type_label,
 **Use MIP splitter (Stage8)** - it's 564× faster than simulated annealing and 8× faster than genetic algorithm, with guaranteed optimal solutions.
 
 ```bash
-python Stage8_splitter_mip.py /path/to/dataset \
+python pipeline/Stage8_splitter_mip.py /path/to/dataset \
     --train_ratio 0.80 --val_ratio 0.10 --test_ratio 0.10 \
     --output ./metadata16khz/splits_mip_80_10_10.csv
 ```
@@ -111,7 +112,7 @@ Pre-generated optimal splits are in `metadata16khz/` and `metadata44khz/` direct
 
 ## Training Architecture
 
-`Stage9_train_mygardenbird_multifeature.py` supports:
+`pipeline/Stage9_train_mygardenbird_multifeature.py` supports:
 
 **Models**: MobileNetV3Small, EfficientNetB0, ResNet50, VGG16 (ImageNet pretrained by default)
 
@@ -135,7 +136,7 @@ Pre-generated optimal splits are in `metadata16khz/` and `metadata44khz/` direct
 The training script **auto-detects sample rate** from the first WAV file in `--dataset_root`. To override:
 
 ```bash
-python Stage9_train_mygardenbird_multifeature.py --sample_rate 44100
+python pipeline/Stage9_train_mygardenbird_multifeature.py --sample_rate 44100
 ```
 
 **Important**: Dataset root path determines both sample rate and data location:
@@ -227,7 +228,7 @@ All 36 runs complete. Source: `results_44k_12sp_linux/`.
 
 ### Basic training (no augmentation)
 ```bash
-python Stage9_train_mygardenbird_multifeature.py \
+python pipeline/Stage9_train_mygardenbird_multifeature.py \
     --model efficientnetb0 \
     --feature mel \
     --splits_csv ./metadata16khz/splits_mip_80_10_10.csv \
@@ -237,17 +238,17 @@ python Stage9_train_mygardenbird_multifeature.py \
 ### With augmentation
 ```bash
 # SpecAugment
-python Stage9_train_mygardenbird_multifeature.py --model mobilenetv3s --feature mel --specaug
+python pipeline/Stage9_train_mygardenbird_multifeature.py --model mobilenetv3s --feature mel --specaug
 
 # Mixup (recommended: alpha=0.2)
-python Stage9_train_mygardenbird_multifeature.py --model mobilenetv3s --feature mel --mixup 0.2
+python pipeline/Stage9_train_mygardenbird_multifeature.py --model mobilenetv3s --feature mel --mixup 0.2
 ```
 
 ### Multi-seed robustness testing
 ```bash
 # Run with 3 seeds: 42, 100, 786
 for seed in 42 100 786; do
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --model efficientnetb0 --feature mel --seed $seed
 done
 ```
@@ -257,15 +258,15 @@ done
 # 16 kHz — all 3 models × 3 augmentations × 3 seeds
 for model in mobilenetv3s efficientnetb0 resnet50; do
   for seed in 42 100 786; do
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \
         --splits_csv ./metadata16khz/splits_mip_80_10_10.csv \
         --model $model --feature mel --seed $seed
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \
         --splits_csv ./metadata16khz/splits_mip_80_10_10.csv \
         --model $model --feature mel --seed $seed --specaug
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \
         --splits_csv ./metadata16khz/splits_mip_80_10_10.csv \
         --model $model --feature mel --seed $seed --mixup 0.2
@@ -275,15 +276,15 @@ done
 # 44.1 kHz — same grid (uses metadata44khz/ and mygardenbird44khz/)
 for model in mobilenetv3s efficientnetb0 resnet50; do
   for seed in 42 100 786; do
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird44khz \
         --splits_csv ./metadata44khz/splits_mip_80_10_10.csv \
         --model $model --feature mel --seed $seed
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird44khz \
         --splits_csv ./metadata44khz/splits_mip_80_10_10.csv \
         --model $model --feature mel --seed $seed --specaug
-    python Stage9_train_mygardenbird_multifeature.py \
+    python pipeline/Stage9_train_mygardenbird_multifeature.py \
         --dataset_root /Volumes/Evo/MYGARDENBIRD/mygardenbird44khz \
         --splits_csv ./metadata44khz/splits_mip_80_10_10.csv \
         --model $model --feature mel --seed $seed --mixup 0.2
@@ -356,7 +357,7 @@ No formal test suite exists. Verify pipeline stages with:
 python config.py
 
 # Check annotation file format
-python Stage5_extract_annotated_segments.py --dry-run
+python pipeline/Stage5_extract_annotated_segments.py --dry-run
 
 # Validate splits (no data leakage)
 python extras/verify_structural_integrity.py
@@ -375,12 +376,12 @@ pip install numpy scipy librosa soundfile requests tqdm matplotlib sounddevice p
 
 ## Key Files to Understand
 
-- `config.py`: All path configuration and species catalog
-- `Stage4_annotate_segments.py`: GUI annotator (manual review)
-- `Stage6_clip_qc_manifest.py`: QC metrics computation
-- `Stage7_eval_birdnet.py`: BirdNET v2.4 zero-shot evaluation (label quality validation)
-- `Stage8_splitter_mip.py`: Optimal splitting algorithm
-- `Stage9_train_mygardenbird_multifeature.py`: Multi-model CNN trainer
+- `pipeline/config.py`: All path configuration and species catalog
+- `pipeline/Stage4_annotate_segments.py`: GUI annotator (manual review)
+- `pipeline/Stage6_clip_qc_manifest.py`: QC metrics computation
+- `pipeline/Stage7_eval_birdnet.py`: BirdNET v2.4 zero-shot evaluation (label quality validation)
+- `pipeline/Stage8_splitter_mip.py`: Optimal splitting algorithm
+- `pipeline/Stage9_train_mygardenbird_multifeature.py`: Multi-model CNN trainer
 - `utils.py`: Shared helper functions (currently minimal - just time formatting)
 
 ## Common Issues
@@ -389,7 +390,7 @@ pip install numpy scipy librosa soundfile requests tqdm matplotlib sounddevice p
 
 **"Sample rate mismatch"**: Ensure `--dataset_root` points to correct directory (16khz vs 44khz) or explicitly set `--sample_rate`.
 
-**"Data leakage detected"**: Run `Stage8_splitter_mip.py` again - never manually edit split assignments.
+**"Data leakage detected"**: Run `pipeline/Stage8_splitter_mip.py` again - never manually edit split assignments.
 
 **"MobileNetV3S underfitting"**: Use MobileNetV3S-specific hyperparameters (see MOBILENETV3S_BASELINE_ANALYSIS.md).
 

@@ -44,3 +44,82 @@ extras/plot_confusion_composite.py
 
 # OS
 .DS_Store
+
+# --- Local working notes (not part of the published dataset/repo) ---
+/CLAUDE.md            # local symlink -> docs/PROJECT_GUIDE.md (keeps Claude Code working)
+/ARGUS Smart Biologger High-Level System Overview.md
+/AUTONOMOUS_TRAINING_STATUS.md
+/BIRDNET_ANALYSIS.md
+/BIRDNET_ZEROSHOT_RESULTS_MAY01.md
+/CAN THIS DATASET BE ACCEPTED.md
+/CHANGES_SUMMARY.md
+/chatgpt comment.md
+/CLAUDE.md
+/CNN_Complexity_Analysis_20260102_095024.md
+/CROSSVAL_QUICKFIX.md
+/DATA_LEAKAGE_ANALYSIS.md
+/DATA_REPLACEMENT_PLAN.md
+/DATASET_EXPANSION_GUIDE_APR22.md
+/DATASET_JUSTIFICATION.md
+/DISCUSSION_SECTION.md
+/DOCUMENTATION_README.md
+/EDGE_AI_RECOMMENDATIONS.md
+/EXTRACTION_SUMMARY_APR29.md
+/FIXES_QUICK_REFERENCE.txt
+/FREQUENCY_RESOLUTION_ANALYSIS.md
+/Helper9x_find_confused.py \342\200\224 what it does.md
+/HONEST_STFT_CHANGES.md
+/JOURNAL_REPORT_Simulated_Annealing.md
+/LATEST_SUMMARY_FEB19.md
+/LATEST_SUMMARY_FEB24.md
+/LATEST_SUMMARY_FEB25.md
+/LATEST_SUMMARY_FEB27.md
+/LINUX_STATUS.txt
+/_manual_notes.md
+/MCU_DEPLOYMENT.md
+/mip2_analysis.md
+/MOBILENETV3S_BASELINE_ANALYSIS.md
+/MOBILENETV3S_OVERFITTING_FIXES.md
+/MynaNet Hyperparameter Accuracy Matrix.md
+/N1_IMPROVEMENTS.md
+/N1_QUICK_REFERENCE.txt
+/N1_VERSION_GUIDE.md
+/NEW_SPLIT_SUMMARY.md
+/optimization_log.txt
+/PAPER_UPDATE_MARCH6.md
+/PAPER_UPDATE_SUMMARY.md
+/PUBLICATION_RESULTS_FEB24.md
+/regional_ranking.md
+/REPLACEMENT_OPTION2_PLAN.md
+/RESULTS_COMPARISON.md
+/ROBUSTNESS_PLAN_REVISED.md
+/ROBUSTNESS_QUICKSTART.md
+/SAMPLES_TO_DELETE.txt
+/ScholarGPT comments.md
+/SEQ_OOB_annotations_to_review.txt
+/SESSION_SUMMARY.md
+/SPECAUGMENT_UPDATE.md
+/SPECIES_INCLUSION_RULE.md
+/SPLIT_COMPARISON_APR29.md
+/SPLIT_COMPARISON_RESULTS.md
+/SPLIT_JUSTIFICATION.md
+/SPLITS_README.md
+/Technical Report for SEAbird Gatekeeper Model Validation.md
+/_TODO.md
+/TRAINING_CONFIG_GUIDE.md
+/TRAINING_IMPROVEMENTS.md
+/TRAINING_RESULTS_COMPARISON.md
+/TRIGGER_SYSTEM_GUIDE.md
+/xc_key.txt
+/Helper9x_find_confused.py*.md
+
+# --- Training run outputs: never published to GitHub (summaries live in benchmark_summaries/) ---
+results*_linux/
+results*_macos/
+resultsplus*_linux/
+resultsplus*_macos/
+_plus_sweep_logs/
+
+# Python bytecode
+__pycache__/
+*.pyc
