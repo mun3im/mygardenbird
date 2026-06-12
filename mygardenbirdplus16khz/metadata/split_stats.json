@@ -1,0 +1,38 @@
+{
+  "Zebra dove": {
+    "total_samples": 600,
+    "train_samples": 480,
+    "val_samples": 60,
+    "test_samples": 60,
+    "total_sources": 106,
+    "train_sources": 77,
+    "val_sources": 16,
+    "test_sources": 13
+  },
+  "Common Myna": {
+    "total_samples": 600,
+    "train_samples": 480,
+    "val_samples": 60,
+    "test_samples": 60,
+    "total_sources": 123,
+    "train_sources": 82,
+    "val_sources": 17,
+    "test_sources": 24
+  },
+  "_overall": {
+    "total_samples": 1200,
+    "train_samples": 960,
+    "val_samples": 120,
+    "test_samples": 120,
+    "total_sources": 229,
+    "train_sources": 159,
+    "val_sources": 33,
+    "test_sources": 37
+  },
+  "_config": {
+    "train_ratio": 0.8,
+    "val_ratio": 0.1,
+    "test_ratio": 0.1,
+    "optimization": "mixed_integer_programming"
+  }
+}

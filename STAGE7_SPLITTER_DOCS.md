@@ -74,7 +74,7 @@ Benchmark on 7200-sample dataset (12 classes, 1325 sources):
 ### MIP Splitter (Recommended)
 
 ```bash
-python Stage7_splitter_mip.py /path/to/dataset \
+python pipeline/Stage7_splitter_mip.py /path/to/dataset \
     --train_ratio 0.75 --val_ratio 0.10 --test_ratio 0.15 \
     --output ./seabird_splits_mip_75_10_15.csv \
     --seed 42
@@ -83,7 +83,7 @@ python Stage7_splitter_mip.py /path/to/dataset \
 ### Genetic Algorithm Splitter
 
 ```bash
-python Stage7a_splitter_genetic_algorithm.py /path/to/dataset \
+python pipeline/Stage7a_splitter_genetic_algorithm.py /path/to/dataset \
     --train_ratio 0.75 --val_ratio 0.10 --test_ratio 0.15 \
     --output ./seabird_splits_ga_75_10_15.csv \
     --seed 42
@@ -92,7 +92,7 @@ python Stage7a_splitter_genetic_algorithm.py /path/to/dataset \
 ### Simulated Annealing Splitter
 
 ```bash
-python Stage7b_splitter_simulated_annealing.py /path/to/dataset \
+python pipeline/Stage7b_splitter_simulated_annealing.py /path/to/dataset \
     --train_ratio 0.75 --val_ratio 0.10 --test_ratio 0.15 \
     --output ./seabird_splits_sa_75_10_15.csv \
     --seed 42
@@ -178,7 +178,7 @@ Each species has exactly 600 clips (perfect class balance). The MIP solver achie
 ## Using Splits with Training
 
 ```bash
-python Stage9_train_seabird_multifeature.py \
+python pipeline/Stage9_train_seabird_multifeature.py \
     --splits_csv ./seabird_splits_mip_75_10_15.csv \
     --dataset_root /path/to/audio/files \
     --model efficientnetb0 \
