@@ -25,32 +25,32 @@ Train CNN models on spectral features extracted from bird audio recordings.
 
 ```bash
 # Default: mobilenetv3s + mel + seed=42
-python Stage9_train_seabird_multifeature.py --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --use_pretrained
 ```
 
 ### Select Model
 
 ```bash
-python Stage9_train_seabird_multifeature.py --model efficientnetb0 --use_pretrained
-python Stage9_train_seabird_multifeature.py --model resnet50 --use_pretrained
-python Stage9_train_seabird_multifeature.py --model vgg16 --use_pretrained
-python Stage9_train_seabird_multifeature.py --model mobilenetv3s --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --model efficientnetb0 --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --model resnet50 --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --model vgg16 --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --model mobilenetv3s --use_pretrained
 ```
 
 ### Select Feature Type
 
 ```bash
-python Stage9_train_seabird_multifeature.py --feature mel --use_pretrained   # Mel spectrogram
-python Stage9_train_seabird_multifeature.py --feature stft --use_pretrained  # STFT magnitude
-python Stage9_train_seabird_multifeature.py --feature mfcc --use_pretrained  # MFCC with deltas
+python pipeline/Stage9_train_seabird_multifeature.py --feature mel --use_pretrained   # Mel spectrogram
+python pipeline/Stage9_train_seabird_multifeature.py --feature stft --use_pretrained  # STFT magnitude
+python pipeline/Stage9_train_seabird_multifeature.py --feature mfcc --use_pretrained  # MFCC with deltas
 ```
 
 ### Reproducibility with Seeds
 
 ```bash
-python Stage9_train_seabird_multifeature.py --seed 42 --use_pretrained
-python Stage9_train_seabird_multifeature.py --seed 100 --use_pretrained
-python Stage9_train_seabird_multifeature.py --seed 786 --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --seed 42 --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --seed 100 --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --seed 786 --use_pretrained
 ```
 
 ## Using CSV-Based Splits (Recommended)
@@ -59,7 +59,7 @@ CSV splits ensure no data leakage between train/val/test sets by keeping segment
 from the same source recording together.
 
 ```bash
-python Stage9_train_seabird_multifeature.py \
+python pipeline/Stage9_train_seabird_multifeature.py \
     --splits_csv ./seabird_splits_mip_75_10_15.csv \
     --dataset_root /path/to/audio/files \
     --use_pretrained
@@ -80,7 +80,7 @@ needed in how you invoke the script.
 ## Full Example
 
 ```bash
-python Stage9_train_seabird_multifeature.py \
+python pipeline/Stage9_train_seabird_multifeature.py \
     --model efficientnetb0 \
     --feature mel \
     --splits_csv ./seabird_splits_mip_75_10_15.csv \
@@ -98,7 +98,7 @@ python Stage9_train_seabird_multifeature.py \
 When GPU is unavailable or occupied:
 
 ```bash
-python Stage9_train_seabird_multifeature.py --force_cpu --use_pretrained
+python pipeline/Stage9_train_seabird_multifeature.py --force_cpu --use_pretrained
 ```
 
 ## All Parameters

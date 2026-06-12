@@ -16,7 +16,7 @@ pip install numpy scipy librosa matplotlib sounddevice
 ## Running the tool
 
 ```bash
-python Stage4_annotate_segments.py
+python pipeline/Stage4_annotate_segments.py
 ```
 
 A file dialog opens. Select a WAV, MP3, M4A, FLAC, or OGG audio file.
@@ -24,7 +24,7 @@ A file dialog opens. Select a WAV, MP3, M4A, FLAC, or OGG audio file.
 To set the starting directory for the file dialog:
 
 ```bash
-python Stage4_annotate_segments.py --sound-dir /path/to/audio/files
+python pipeline/Stage4_annotate_segments.py --sound-dir /path/to/audio/files
 ```
 
 Files shorter than 3 seconds are skipped automatically.
