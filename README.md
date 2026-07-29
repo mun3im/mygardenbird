@@ -40,8 +40,10 @@ documented in [`mygardenbirdplus16khz/`](mygardenbirdplus16khz/README.md).
   simulated annealing, with guaranteed-optimal class balance.
 
 Full per-seed / per-model / per-augmentation tables:
-12-species in [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md);
+12-species in [`benchmark_summaries/16k_12species.md`](benchmark_summaries/16k_12species.md);
 14-species in [`benchmark_summaries/plus_16k_14species.md`](benchmark_summaries/plus_16k_14species.md).
+See [`benchmark_summaries/README.md`](benchmark_summaries/README.md) for an
+accuracy-vs-compute comparison across both datasets.
 (Raw per-run training outputs stay local and are not published.)
 
 ## Pipeline
