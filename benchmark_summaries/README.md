@@ -49,3 +49,31 @@ are transcribed from the tables above, which in turn come from the per-run
 `results.json` files in
 [`../results_16k_12sp_linux/`](../results_16k_12sp_linux/) and
 [`../resultsplus_16k_linux/`](../resultsplus_16k_linux/).
+
+## Regenerating the Underlying Data
+
+Each row in the summary tables is one run of
+[`pipeline/Stage9_train_mygardenbird_multifeature.py`](../pipeline/Stage9_train_mygardenbird_multifeature.py),
+which trains a single (model, augmentation, seed) configuration end-to-end and
+writes `results.json` + `classification_report.txt` + `confusion_matrix.pdf`
++ `training_curves.png` to `--output_dir`. For example, to reproduce the
+EfficientNet-B0 + Mixup α=0.2, seed 42, 12-species run:
+
+```bash
+python3 pipeline/Stage9_train_mygardenbird_multifeature.py \
+    --model efficientnetb0 \
+    --feature mel \
+    --splits_csv metadata16khz/splits_mip_80_10_10.csv \
+    --dataset_root /path/to/mygardenbird16khz \
+    --mixup 0.2 \
+    --seed 42 \
+    --output_dir ./results_16k_12sp
+```
+
+`--model` accepts `mobilenetv3s`, `resnet50`, `vgg16`, `efficientnetb0`; omit
+`--mixup` for the no-augmentation runs or pass `--specaug` for SpecAugment.
+The full 36-run 12-species sweep (4 models × 3 augmentations × 3 seeds) is
+driven by [`full_rerun_12sp.sh`](../full_rerun_12sp.sh); the 27-run 14-species
+Plus sweep (3 models × 3 augmentations × 3 seeds) by
+[`run_plus_sweep.sh`](../run_plus_sweep.sh) — each is one invocation of
+Stage9 per (model × augmentation × seed) cell.
