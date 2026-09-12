@@ -54,6 +54,8 @@ Note: Sample rate is automatically detected from the first .wav file in dataset_
 """
 
 import os
+import sys
+import csv
 import json
 import platform
 from tqdm import tqdm
@@ -91,7 +93,7 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     print("Warning: psutil not available. Install with 'pip install psutil' for detailed system info.")
 
-from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
+from config import MYGARDENBIRD_16K, METADATA_16K, get_profile
 
 import tensorflow as tf
 from tensorflow import keras
@@ -373,7 +375,8 @@ def build_dataset(
     num_parallel=4,
     seed=42,
     csv_path=None,
-    split_name=None
+    split_name=None,
+    return_paths=False
 ):
     if feature == 'mel':
         feature_func = audio_to_melspec
@@ -455,10 +458,15 @@ def build_dataset(
     if shuffle:
         ds = ds.shuffle(buffer_size=len(paths), seed=seed, reshuffle_each_iteration=True)
 
-    ds = ds.map(process_audio, num_parallel_calls=num_parallel)
+    # deterministic=True (explicit, matches the default) guarantees output order
+    # matches input order for shuffle=False callers -- load-bearing when
+    # return_paths=True is used to align predictions back to source files.
+    ds = ds.map(process_audio, num_parallel_calls=num_parallel, deterministic=True)
     ds = ds.batch(batch_size)
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
+    if return_paths:
+        return ds, classes, paths
     return ds, classes
 
 
@@ -690,13 +698,19 @@ def main():
     parser.add_argument('--model', default='mobilenetv3s',
                         choices=['mobilenetv3s', 'resnet50', 'vgg16', 'efficientnetb0'])
     parser.add_argument('--feature', default='mel', choices=['mel', 'stft', 'mfcc'])
-    parser.add_argument('--train_dir', default=str(MYGARDENBIRD_16K / 'train'))
-    parser.add_argument('--val_dir',   default=str(MYGARDENBIRD_16K / 'val'))
-    parser.add_argument('--test_dir',  default=str(MYGARDENBIRD_16K / 'test'))
-    parser.add_argument('--splits_csv', default=str(METADATA_16K / 'splits_mip_80_10_10.csv') )
-    parser.add_argument('--dataset_root', default=str(MYGARDENBIRD_16K), type=str)
+    parser.add_argument('--dataset', choices=['mygardenbird', 'sea-bird30'],
+                        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+                        help="Which dataset's default paths to use. Default: mygardenbird "
+                             "(or $PIPELINE_DATASET if set).")
     parser.add_argument('--sample_rate', type=int, default=16000,
-                        help='Audio sample rate (auto-detected from first file if not specified)')
+                        help='Audio sample rate. Also selects which of the dataset\'s clips/'
+                             'metadata dirs --train_dir/--val_dir/--test_dir/--splits_csv/'
+                             '--dataset_root default to, if not given explicitly.')
+    parser.add_argument('--train_dir', default=None)
+    parser.add_argument('--val_dir',   default=None)
+    parser.add_argument('--test_dir',  default=None)
+    parser.add_argument('--splits_csv', default=None)
+    parser.add_argument('--dataset_root', default=None, type=str)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--learning_rate', type=float, default=0.001)
@@ -716,6 +730,26 @@ def main():
     parser.add_argument('--force_cpu', action='store_true')
 
     args = parser.parse_args()
+
+    profile = get_profile(args.dataset)
+    if args.sample_rate not in profile.clips_dirs:
+        supported = sorted(profile.clips_dirs)
+        print(f"ERROR: dataset '{args.dataset}' has no {args.sample_rate} Hz variant. "
+              f"Supported: {supported}. Pass --train_dir/--val_dir/--test_dir/"
+              f"--splits_csv/--dataset_root to override.")
+        sys.exit(1)
+    _clips_dir = profile.clips_dirs[args.sample_rate]
+    _metadata_dir = profile.metadata_dirs[args.sample_rate]
+    if args.train_dir is None:
+        args.train_dir = str(_clips_dir / 'train')
+    if args.val_dir is None:
+        args.val_dir = str(_clips_dir / 'val')
+    if args.test_dir is None:
+        args.test_dir = str(_clips_dir / 'test')
+    if args.splits_csv is None:
+        args.splits_csv = str(_metadata_dir / 'splits_mip_80_10_10.csv')
+    if args.dataset_root is None:
+        args.dataset_root = str(_clips_dir)
 
     # Determine augmentation mode: mixup > specaug > none
     if args.mixup is not None:
@@ -774,7 +808,7 @@ def main():
         MIXUP_ALPHA = args.mixup
 
     print("=" * 80)
-    print(f"MYGARDENBIRD CNN TRAINING - {args.feature.upper()} Features")
+    print(f"{profile.name.upper()} CNN TRAINING - {args.feature.upper()} Features")
     print("=" * 80)
     print(f"TensorFlow: {tf.__version__}")
     print(f"Model: {args.model}  |  Pretrained: {args.use_pretrained}")
@@ -801,10 +835,10 @@ def main():
             augment=False, shuffle=False, batch_size=args.batch_size,
             csv_path=args.splits_csv, split_name='val'
         )
-        test_ds, _ = build_dataset(
+        test_ds, _, test_paths = build_dataset(
             args.dataset_root, feature=args.feature,
             augment=False, shuffle=False, batch_size=args.batch_size,
-            csv_path=args.splits_csv, split_name='test'
+            csv_path=args.splits_csv, split_name='test', return_paths=True
         )
     else:
         train_ds, classes = build_dataset(
@@ -816,9 +850,10 @@ def main():
             args.val_dir, feature=args.feature,
             augment=False, shuffle=False, batch_size=args.batch_size
         )
-        test_ds, _ = build_dataset(
+        test_ds, _, test_paths = build_dataset(
             args.test_dir, feature=args.feature,
-            augment=False, shuffle=False, batch_size=args.batch_size
+            augment=False, shuffle=False, batch_size=args.batch_size,
+            return_paths=True
         )
 
     num_classes = len(classes)
@@ -969,6 +1004,20 @@ def main():
     output_dir = f"{args.output_dir}_{platform.platform().split('-')[0].lower()}"
     output_path = Path(output_dir) / run_name
     output_path.mkdir(parents=True, exist_ok=True)
+
+    # Per-file misclassification log (additive; test_paths is populated by
+    # build_dataset(..., return_paths=True) for both the CSV-splits and
+    # train/val/test-dir code paths above).
+    misclass_path = output_path / "misclassified.csv"
+    with open(misclass_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["file_path", "true_label", "predicted_label"])
+        n_misclassified = 0
+        for path, true_idx, pred_idx in zip(test_paths, y_true, y_pred):
+            if true_idx != pred_idx:
+                w.writerow([path, classes[true_idx], classes[pred_idx]])
+                n_misclassified += 1
+    print(f"  Misclassified: {n_misclassified}/{len(test_paths)} -- saved to {misclass_path}")
 
     report = classification_report(y_true, y_pred, target_names=classes, digits=4)
     with open(output_path / "classification_report.txt", "w") as f:

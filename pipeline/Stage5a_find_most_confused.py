@@ -69,7 +69,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 
-from config import MYGARDENBIRD_16K, METADATA_16K
+from config import MYGARDENBIRD_16K, METADATA_16K, get_profile
 
 import tensorflow as tf
 from tensorflow import keras
@@ -747,8 +747,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="Stage 9b: Find most confused samples for dataset balancing"
     )
-    parser.add_argument('--dataset_root', default=str(MYGARDENBIRD_16K),
-                        help=f'Path to 16kHz dataset (default: {MYGARDENBIRD_16K})')
+    parser.add_argument('--dataset', choices=['mygardenbird', 'sea-bird30'],
+                        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+                        help="Which dataset's default 16kHz clips dir to use. Default: "
+                             "mygardenbird (or $PIPELINE_DATASET if set). Only affects "
+                             "--dataset_root's default; pass --dataset_root explicitly "
+                             "to override.")
+    parser.add_argument('--dataset_root', default=None,
+                        help=f'Path to 16kHz dataset (default: the selected dataset\'s '
+                             f'16kHz clips dir; MyGardenBird: {MYGARDENBIRD_16K})')
     parser.add_argument('--output_dir', default='./confusion_analysis',
                         help='Output directory for results')
     parser.add_argument('--seed', type=int, default=42,
@@ -759,6 +766,10 @@ def main():
                         help='Run only fold 0 (quick accuracy probe; use until val_acc >= 80%%)')
 
     args = parser.parse_args()
+
+    if args.dataset_root is None:
+        profile = get_profile(args.dataset)
+        args.dataset_root = str(profile.clips_dirs[16000])
 
     # Set random seeds
     np.random.seed(args.seed)

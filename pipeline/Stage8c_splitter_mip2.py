@@ -56,7 +56,7 @@ for i in range(100):
 pbar.close()
 
 
-from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
+from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K, get_profile
 
 try:
     from pulp import (
@@ -477,11 +477,22 @@ Examples:
         """
     )
 
-    parser.add_argument('--dataset', type=str, default=str(MYGARDENBIRD_16K),
-                        help=f'Path to dataset directory. Default: {MYGARDENBIRD_16K}')
+    parser.add_argument('--dataset-profile', choices=['mygardenbird', 'sea-bird30'],
+                        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+                        dest='dataset_profile_name',
+                        help="Which dataset's default --dataset/--output paths to use. Default: "
+                             "mygardenbird (or $PIPELINE_DATASET if set). Distinct from --dataset "
+                             "(below), which is the clips DIRECTORY path.")
+    parser.add_argument('--dataset', type=str, default=None,
+                        help=f'Path to dataset (clips) directory. Default: the selected '
+                             f'--dataset-profile\'s clips dir at --sample-rate '
+                             f'(MyGardenBird 16kHz: {MYGARDENBIRD_16K}).')
+    parser.add_argument('--sample-rate', type=int, default=16000,
+                        help='Sample rate variant to default --dataset/--output to, if not given '
+                             'explicitly. Default: 16000.')
     parser.add_argument('--dataset-label', type=str, default=None,
                         help='Short label for the dataset variant (e.g. "16khz", "44khz"). '
-                             'Auto-derived from --dataset path when not given.')
+                             'Auto-derived from --sample-rate when not given.')
     parser.add_argument('--output', type=str, default=None,
                         help='Output CSV path (default: auto-named in metadata directory)')
     parser.add_argument('--train_ratio', type=float, default=0.80,
@@ -505,21 +516,32 @@ Examples:
     args = parser.parse_args()
     verbose = not args.quiet
 
+    profile = get_profile(args.dataset_profile_name)
+    if args.sample_rate not in profile.clips_dirs:
+        supported = sorted(profile.clips_dirs)
+        print(f"ERROR: dataset-profile '{args.dataset_profile_name}' has no "
+              f"{args.sample_rate} Hz variant. Supported: {supported}. "
+              f"Pass --dataset/--output to override.")
+        return 1
+
+    if args.dataset is None:
+        args.dataset = str(profile.clips_dirs[args.sample_rate])
+
     # Validate ratios
     if abs(args.train_ratio + args.val_ratio + args.test_ratio - 1.0) > 1e-6:
         print("ERROR: Split ratios must sum to 1.0")
         return 1
 
-    # Auto-name output CSV
-    _label = args.dataset_label or ('44khz' if '44' in str(args.dataset) else '16khz')
+    # Auto-name output CSV -- looked up from --sample-rate instead of
+    # substring-matching "44" in --dataset.
+    _label = args.dataset_label or f"{args.sample_rate // 1000}khz"
     _t  = int(round(args.train_ratio * 100))
     _v  = int(round(args.val_ratio   * 100))
     _te = int(round(args.test_ratio  * 100))
     _auto_csv = f"splits_mip2_{_t}_{_v}_{_te}.csv"
 
     if args.output is None:
-        meta_dir = METADATA_44K if '44' in str(args.dataset) else METADATA_16K
-        args.output = str(meta_dir / _auto_csv)
+        args.output = str(profile.metadata_dirs[args.sample_rate] / _auto_csv)
 
     if verbose:
         print("\n" + "=" * 80)

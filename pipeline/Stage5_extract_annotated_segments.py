@@ -24,7 +24,7 @@ import soundfile as sf
 import numpy as np
 from tqdm import tqdm
 
-from config import PER_SPECIES_FLACS, MYGARDENBIRD_16K, MYGARDENBIRD_44K, DATASET_ROOT
+from config import PER_SPECIES_FLACS, MYGARDENBIRD_16K, MYGARDENBIRD_44K, get_profile, folder_name
 
 
 def find_annotation_files(input_dir, recursive=True):
@@ -126,12 +126,14 @@ def extract_segment(audio, sr, start_time, end_time, target_duration=3.0):
 
 def get_species_from_path(flac_path, input_dir):
     """
-    Extract species name from the directory structure.
+    Extract the RAW species folder name from the directory structure (as it
+    literally appears on disk under input_dir -- may be underscore-styled,
+    e.g. SEA-BIRD30's flacs/ convention).
 
     Assumes structure: {input_dir}/{Species name}/{quality}/file.flac
 
     Returns:
-        species name (str) or "unknown"
+        species folder name (str) or "unknown"
     """
     try:
         # Get relative path from input_dir
@@ -143,13 +145,51 @@ def get_species_from_path(flac_path, input_dir):
         return "unknown"
 
 
+def species_output_name(raw_species_folder, profile):
+    """
+    Translate a raw input species folder name (as found under
+    profile.per_species_flacs, e.g. SEA-BIRD30's underscore-styled
+    "Malaysian_Pied_Fantail") to the output folder name matching
+    profile.clips_dirs' convention (e.g. SEA-BIRD30's wavs/ is
+    space-styled: "Pied Fantail").
+
+    Uses profile.species_overrides as a reverse lookup first (so
+    "Malaysian_Pied_Fantail" correctly maps back to "Pied Fantail", not a
+    naive "Malaysian Pied Fantail"), then falls back to a plain
+    underscore<->space swap for the (more common) unambiguous case.
+    If input and output folder styles already match (MyGardenBird: both
+    "space"), this is a no-op.
+    """
+    in_style = profile.folder_styles.get("per_species_flacs", "space")
+    out_style = profile.folder_styles.get("clips", "space")
+    if in_style == out_style:
+        return raw_species_folder
+
+    # Reverse-lookup: does this raw folder name match an override's value?
+    for common_name, override_folder in profile.species_overrides.items():
+        if override_folder == raw_species_folder:
+            return common_name if out_style == "space" else common_name.replace(" ", "_")
+
+    if out_style == "space":
+        return raw_species_folder.replace("_", " ")
+    return raw_species_folder.replace(" ", "_")
+
+
 def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
-                            target_sr=16000, audio_format='wav', no_upsample=False):
+                            target_sr=16000, audio_format='wav', no_upsample=False,
+                            profile=None):
     """
     Process a single annotation file and extract all segments.
 
     If no_upsample=True, files whose native sample rate is below target_sr are
     skipped entirely (all their segments counted as 'upsample_skip').
+
+    `profile` (a config.DatasetProfile), if given, is used to translate the
+    raw input species folder name to the output naming convention via
+    species_output_name() -- needed when input_dir's and output_dir's
+    folder styles differ (e.g. SEA-BIRD30's underscore-styled flacs/ vs
+    space-styled wavs/). If None, the raw folder name is used unchanged
+    (MyGardenBird's historical behavior, where input/output styles match).
 
     Returns:
         dict with extraction statistics
@@ -185,11 +225,13 @@ def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
         stats['upsample_skip'] = stats['total_segments']
         return stats
 
-    # Get species name from directory structure
+    # Get species name from directory structure, translated to the output
+    # naming convention if the two differ (see species_output_name()).
     species = get_species_from_path(flac_path, input_dir)
+    output_species = species_output_name(species, profile) if profile is not None else species
 
     # Create output directory for this species
-    species_output_dir = Path(output_dir) / species
+    species_output_dir = Path(output_dir) / output_species
     species_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Extract each segment
@@ -243,15 +285,24 @@ Examples:
     )
 
     parser.add_argument(
+        "--dataset", choices=["mygardenbird", "sea-bird30"],
+        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+        help="Which dataset's default paths to use. Default: mygardenbird "
+             "(or $PIPELINE_DATASET if set).",
+    )
+    parser.add_argument(
         "input_dir",
         nargs="?",
-        default=str(PER_SPECIES_FLACS),
-        help=f"Input directory containing FLAC files and .txt annotation files. Default: {PER_SPECIES_FLACS}",
+        default=None,
+        help=f"Input directory containing FLAC files and .txt annotation files. Default: "
+             f"the selected dataset's per_species_flacs dir (MyGardenBird: {PER_SPECIES_FLACS}).",
     )
     parser.add_argument(
         "--output-dir",
         default=None,
-        help=f"Output directory for extracted WAV segments. If not specified, auto-detects based on sample rate: 16kHz → {MYGARDENBIRD_16K}, 44.1kHz → {MYGARDENBIRD_44K}",
+        help="Output directory for extracted WAV segments. If not specified, auto-detects "
+             "based on --sample-rate and the selected dataset's clips_dirs "
+             f"(MyGardenBird: 16kHz → {MYGARDENBIRD_16K}, 44.1kHz → {MYGARDENBIRD_44K}).",
     )
     parser.add_argument(
         "--sample-rate",
@@ -285,17 +336,24 @@ Examples:
 
     args = parser.parse_args()
 
+    profile = get_profile(args.dataset)
+
+    if args.input_dir is None:
+        args.input_dir = str(profile.per_species_flacs)
     input_dir = Path(args.input_dir)
 
-    # Auto-select output directory based on sample rate if not explicitly specified
+    # Auto-select output directory based on sample rate if not explicitly
+    # specified -- looked up from the dataset profile's clips_dirs instead
+    # of hardcoded 16k/44k branches + a "mygardenbird{khz}" string-built
+    # fallback, so an unsupported rate fails clearly instead of silently
+    # inventing a wrong path (e.g. SEA-BIRD30 has no 44kHz variant at all).
     if args.output_dir is None:
-        if args.sample_rate == 16000:
-            output_dir = MYGARDENBIRD_16K
-        elif args.sample_rate == 44100:
-            output_dir = MYGARDENBIRD_44K
-        else:
-            # Fallback for non-standard sample rates
-            output_dir = DATASET_ROOT / f"mygardenbird{args.sample_rate//1000}khz"
+        if args.sample_rate not in profile.clips_dirs:
+            supported = sorted(profile.clips_dirs)
+            print(f"Error: dataset '{args.dataset}' has no {args.sample_rate} Hz variant. "
+                  f"Supported sample rates: {supported}. Pass --output-dir to override.")
+            sys.exit(1)
+        output_dir = profile.clips_dirs[args.sample_rate]
     else:
         output_dir = Path(args.output_dir)
 
@@ -349,7 +407,8 @@ Examples:
         for txt_file, flac_file in annotation_pairs:
             segments = parse_annotation_file(txt_file)
             species = get_species_from_path(flac_file, input_dir)
-            print(f"  {txt_file.name} -> {flac_file.name} ({len(segments)} segments, species: {species})")
+            output_species = species_output_name(species, profile)
+            print(f"  {txt_file.name} -> {flac_file.name} ({len(segments)} segments, species: {output_species})")
         print()
         print(f"Total segments that would be extracted: {sum(len(parse_annotation_file(t)) for t, _ in annotation_pairs)}")
         sys.exit(0)
@@ -363,18 +422,20 @@ Examples:
         stats = process_annotation_file(
             annotation_path, flac_path, output_dir, input_dir,
             target_sr=args.sample_rate, audio_format=args.format,
-            no_upsample=args.no_upsample,
+            no_upsample=args.no_upsample, profile=profile,
         )
 
         # Update totals
         for key, value in stats.items():
             total_stats[key] += value
 
-        # Update species-specific stats
+        # Update species-specific stats (output naming convention, matching
+        # the folders actually created above)
         species = get_species_from_path(flac_path, input_dir)
+        output_species = species_output_name(species, profile)
         for key, value in stats.items():
-            species_stats[species][key] += value
-        species_stats[species]['source_files'] += 1
+            species_stats[output_species][key] += value
+        species_stats[output_species]['source_files'] += 1
 
     # Print summary
     print()

@@ -20,7 +20,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 import requests
 
-from config import SPECIES, VALID_QUALITIES, resolve_species, PER_SPECIES_CSV
+from config import SPECIES, VALID_QUALITIES, resolve_species, PER_SPECIES_CSV, get_profile, _load_species
 
 # ── constants ────────────────────────────────────────────────────────────────
 
@@ -315,15 +315,21 @@ def fetch_metadata(
 # ── rank command ─────────────────────────────────────────────────────────────
 
 
-def rank_from_csvs(output_dir: str):
+def rank_from_csvs(output_dir: str, species_list=None):
     """Read per-species CSVs and rank by total downloadable hours in target region.
 
     CSVs now contain only regional-filtered records (lon 60-140 OR ASEAN, >=3s).
     Global stats are read from global_stats.json for comparison.
 
-    Sorted descending by total regional hours.
+    Sorted descending by total regional hours. `species_list` defaults to the
+    module-level MyGardenBird SPECIES catalogue; pass a profile-specific list
+    (via _load_species(profile.species_csv)) to rank a different dataset's
+    species instead.
     """
     import json
+
+    if species_list is None:
+        species_list = SPECIES
 
     # Load global stats
     stats_path = os.path.join(output_dir, "global_stats.json")
@@ -337,7 +343,7 @@ def rank_from_csvs(output_dir: str):
     rows = []
     zero_q = {q: 0 for q in VALID_QUALITIES}
 
-    for common, scientific, code in SPECIES:
+    for common, scientific, code in species_list:
         safe = common.replace(" ", "_").replace("/", "-").replace(":", "-")
         csv_path = os.path.join(output_dir, f"{safe}.csv")
 
@@ -483,12 +489,20 @@ def main():
         description="Stage 1: Fetch Xeno-Canto metadata for target species and rank by regional availability.",
     )
     parser.add_argument(
+        "--dataset", choices=["mygardenbird", "sea-bird30"],
+        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+        help="Which dataset's species catalogue/paths to use. Default: mygardenbird "
+             "(or $PIPELINE_DATASET if set).",
+    )
+    parser.add_argument(
         "--species", nargs="+", default=["all"],
         help='Species to fetch (common name, scientific name, or eBird code). Default: all.',
     )
     parser.add_argument(
-        "--output-dir", default=str(PER_SPECIES_CSV),
-        help=f"Directory for per-species CSV files. Default: {PER_SPECIES_CSV}",
+        "--output-dir", default=None,
+        help=f"Directory for per-species CSV files. Default: the selected dataset's "
+             f"per_species_csv dir (MyGardenBird: {PER_SPECIES_CSV}; SEA-BIRD30 has none "
+             f"-- must pass --output-dir explicitly).",
     )
     parser.add_argument(
         "--rank-only", action="store_true",
@@ -520,9 +534,26 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolve dataset profile, then defer path/species-list defaults until now
+    # (argparse evaluates default= at parser-construction time, before
+    # --dataset itself is known -- so profile-derived defaults are resolved
+    # here instead of in add_argument()).
+    profile = get_profile(args.dataset)
+    if args.dataset == "mygardenbird":
+        catalogue = list(SPECIES)
+    else:
+        catalogue, _ = _load_species(profile.species_csv)
+
+    if args.output_dir is None:
+        if profile.per_species_csv is None:
+            print(f"Error: dataset '{args.dataset}' has no per_species_csv directory; "
+                  f"pass --output-dir explicitly.")
+            sys.exit(1)
+        args.output_dir = str(profile.per_species_csv)
+
     # resolve species list
     if len(args.species) == 1 and args.species[0].lower() == "all":
-        species_list = list(SPECIES)
+        species_list = list(catalogue)
     else:
         species_list = []
         tokens = args.species
@@ -531,7 +562,7 @@ def main():
             matched = False
             for length in range(min(4, len(tokens) - i), 0, -1):
                 candidate = " ".join(tokens[i:i + length])
-                result = resolve_species(candidate)
+                result = resolve_species(candidate, catalogue)
                 if result:
                     species_list.append(result)
                     i += length
@@ -597,7 +628,7 @@ def main():
         )
 
     if not args.dry_run:
-        rank_from_csvs(output_dir)
+        rank_from_csvs(output_dir, species_list=catalogue)
 
 
 if __name__ == "__main__":
