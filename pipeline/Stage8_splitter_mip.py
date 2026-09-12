@@ -51,7 +51,7 @@ for i in range(100):
 pbar.close()
 
 
-from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
+from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K, get_profile
 
 try:
     from pulp import (
@@ -478,8 +478,10 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
                       verbose: bool = True):
     """Write a CSV with columns: file_id,split.
 
-    file_id is the normalised clip primary key: XC{source_id}_{onset_ms}
-    (matches the file_id column in clips.csv produced by Stage 7).
+    file_id is the normalised clip primary key: xc{source_id}_{onset_ms}
+    (matches the file_id column in clips.csv produced by Stage 7 --
+    lowercase "xc", not uppercase; was a real bug here previously that
+    broke clips.csv<->splits_*.csv joins).
     wav_filename is derivable as: xc{source_id}_{onset_ms}.wav
     """
     if verbose:
@@ -496,7 +498,7 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
             split = assignment[class_name][source]
             for filename in sorted(sources[source]):
                 stem = Path(filename).stem          # e.g. xc1002657_2860
-                file_id = "XC" + stem[2:] if stem.lower().startswith("xc") else stem
+                file_id = "xc" + stem[2:] if stem.lower().startswith("xc") else stem
                 rows.append((file_id, split))
 
     with open(output_path, 'w') as f:
@@ -601,14 +603,26 @@ Examples:
         """
     )
 
-    parser.add_argument('--dataset', type=str, default=str(MYGARDENBIRD_16K),
-                       help=f'Path to dataset directory. Default: {MYGARDENBIRD_16K}')
+    parser.add_argument('--dataset-profile', choices=['mygardenbird', 'sea-bird30'],
+                       default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+                       dest='dataset_profile_name',
+                       help="Which dataset's default --dataset/--output paths to use. Default: "
+                            "mygardenbird (or $PIPELINE_DATASET if set). Distinct from --dataset "
+                            "(below), which is the clips DIRECTORY path, not a dataset selector -- "
+                            "this only supplies its default when --dataset isn't given explicitly.")
+    parser.add_argument('--dataset', type=str, default=None,
+                       help=f'Path to dataset (clips) directory. Default: the selected '
+                            f'--dataset-profile\'s clips dir at --sample-rate '
+                            f'(MyGardenBird 16kHz: {MYGARDENBIRD_16K}).')
+    parser.add_argument('--sample-rate', type=int, default=16000,
+                       help='Sample rate variant to default --dataset/--output to, if not given '
+                            'explicitly. Default: 16000.')
     parser.add_argument('--dataset-label', type=str, default=None,
                        help='Short label identifying the dataset variant, included in the output '
-                            'filename (e.g. "16khz", "44khz"). Auto-derived from --dataset path '
-                            'when not given: "44khz" if the path contains "44", else "16khz".')
+                            'filename (e.g. "16khz", "44khz"). Auto-derived from --sample-rate '
+                            'when not given.')
     parser.add_argument('--output', type=str, default=None,
-                       help='Output CSV path (default: auto-named splits_mip_<ratios>.csv in metadata directory corresponding to --dataset)')
+                       help='Output CSV path (default: auto-named splits_mip_<ratios>.csv in metadata directory corresponding to --dataset-profile/--sample-rate)')
     parser.add_argument('--train_ratio', type=float, default=0.80,
                        help='Target train ratio (default: 0.80)')
     parser.add_argument('--val_ratio', type=float, default=0.10,
@@ -627,19 +641,31 @@ Examples:
     args = parser.parse_args()
     verbose = not args.quiet
 
-    # Build dataset label and auto-name the output CSV in the appropriate metadata directory
-    _label = args.dataset_label or ('44khz' if '44' in str(args.dataset) else '16khz')
+    profile = get_profile(args.dataset_profile_name)
+    if args.sample_rate not in profile.clips_dirs:
+        supported = sorted(profile.clips_dirs)
+        print(f"ERROR: dataset-profile '{args.dataset_profile_name}' has no "
+              f"{args.sample_rate} Hz variant. Supported: {supported}. "
+              f"Pass --dataset/--output to override.")
+        return 1
+
+    if args.dataset is None:
+        args.dataset = str(profile.clips_dirs[args.sample_rate])
+
+    # Build dataset label and auto-name the output CSV in the appropriate
+    # metadata directory -- looked up from the profile's metadata_dirs dict
+    # keyed by --sample-rate, instead of substring-matching "44" in the
+    # --dataset path string (fragile, and SEA-BIRD30 has no "44" path
+    # component or 44kHz variant to match against at all).
+    _label = args.dataset_label or f"{args.sample_rate // 1000}khz"
     _t  = int(round(args.train_ratio * 100))
     _v  = int(round(args.val_ratio   * 100))
     _te = int(round(args.test_ratio  * 100))
     _auto_csv = f"splits_mip_{_t}_{_v}_{_te}.csv"
 
-    # Auto-select output directory based on dataset path if not specified
+    # Auto-select output directory if not specified
     if args.output is None:
-        if '44' in str(args.dataset):
-            args.output = str(METADATA_44K / _auto_csv)
-        else:
-            args.output = str(METADATA_16K / _auto_csv)
+        args.output = str(profile.metadata_dirs[args.sample_rate] / _auto_csv)
 
     # Validate ratios sum to 1.0
     ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio

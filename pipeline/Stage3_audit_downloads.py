@@ -7,19 +7,29 @@ from collections import defaultdict
 
 from tqdm import tqdm
 
-from config import ACTIVE_SPECIES, VALID_QUALITIES, folder_name, PER_SPECIES_FLACS, PER_SPECIES_CSV
+from config import (
+    ACTIVE_SPECIES, VALID_QUALITIES, folder_name, PER_SPECIES_FLACS, PER_SPECIES_CSV,
+    get_profile, _load_species,
+)
 
 
-def scan_downloads(input_dir):
+def scan_downloads(input_dir, active_species=ACTIVE_SPECIES, folder_style="space", species_overrides=None):
     """Scan input_dir for {English name}/{quality}/xc*.flac structure.
 
     Returns dict keyed by English name: {english: {quality: [filepath, ...]}}.
     Only considers active species and valid quality letters.
+    `folder_style`/`species_overrides` select space (MyGardenBird, default)
+    or underscore (SEA-BIRD30) folder naming, same convention as Stage2.
     """
+    overrides = species_overrides or {}
     results = {}
-    for english, _, _ in tqdm(ACTIVE_SPECIES, desc="Scanning downloads", unit="species"):
+    for english, _, _ in tqdm(active_species, desc="Scanning downloads", unit="species"):
         results[english] = {}
-        species_dir = os.path.join(input_dir, folder_name(english))
+        if folder_style == "underscore":
+            folder = overrides.get(english, english.replace(" ", "_"))
+        else:
+            folder = overrides.get(english, folder_name(english))
+        species_dir = os.path.join(input_dir, folder)
         if not os.path.isdir(species_dir):
             continue
         for quality in VALID_QUALITIES:
@@ -36,7 +46,7 @@ def scan_downloads(input_dir):
     return results
 
 
-def load_metadata(metadata_dir):
+def load_metadata(metadata_dir, active_species=ACTIVE_SPECIES):
     """Read per-species CSVs and count available recordings per quality.
 
     Returns dict keyed by English name: {english: {quality: count}}.
@@ -49,7 +59,7 @@ def load_metadata(metadata_dir):
     # Build lookup: underscore_english -> english
     english_lookup = {
         eng.replace(" ", "_"): eng
-        for eng, _, _ in ACTIVE_SPECIES
+        for eng, _, _ in active_species
     }
 
     results = {}
@@ -157,15 +167,24 @@ def main():
         description="Stage 4: EDA on downloaded Xeno-Canto FLACs — how many usable files per species/quality?",
     )
     parser.add_argument(
+        "--dataset", choices=["mygardenbird", "sea-bird30"],
+        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+        help="Which dataset's species catalogue/paths to use. Default: mygardenbird "
+             "(or $PIPELINE_DATASET if set).",
+    )
+    parser.add_argument(
         "input_dir",
         nargs="?",
-        default=str(PER_SPECIES_FLACS),
-        help=f"Base directory with {{English name}}/{{quality}}/ structure from Stage 2. Default: {PER_SPECIES_FLACS}",
+        default=None,
+        help=f"Base directory with {{English name}}/{{quality}}/ structure from Stage 2. "
+             f"Default: the selected dataset's per_species_flacs dir (MyGardenBird: {PER_SPECIES_FLACS}).",
     )
     parser.add_argument(
         "--metadata-dir",
-        default=str(PER_SPECIES_CSV),
-        help=f"Path to per-species CSV directory for completeness check. Default: {PER_SPECIES_CSV}",
+        default=None,
+        help=f"Path to per-species CSV directory for completeness check. Default: the "
+             f"selected dataset's per_species_csv dir (MyGardenBird: {PER_SPECIES_CSV}; "
+             f"SEA-BIRD30 has none -- completeness will show N/A unless passed explicitly).",
     )
     parser.add_argument(
         "--output",
@@ -185,6 +204,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolve dataset profile, then defer path/species-catalogue defaults
+    # until now (argparse evaluates default= before --dataset is parsed).
+    profile = get_profile(args.dataset)
+    if args.dataset == "mygardenbird":
+        active_species = list(ACTIVE_SPECIES)
+    else:
+        _, active_species = _load_species(profile.species_csv)
+
+    if args.input_dir is None:
+        args.input_dir = str(profile.per_species_flacs)
+    if args.metadata_dir is None:
+        args.metadata_dir = str(profile.per_species_csv) if profile.per_species_csv else None
+
     input_dir = args.input_dir
     if not os.path.isdir(input_dir):
         print(f"Error: '{input_dir}' is not a directory.")
@@ -194,8 +226,7 @@ def main():
 
     output_path = args.output
     if output_path is None:
-        from config import PROJECT_CSV
-        output_path = os.path.join(str(PROJECT_CSV), "stage4_eda_report.csv")
+        output_path = os.path.join(str(profile.project_csv_dir), "stage4_eda_report.csv")
 
     # Print startup information
     print("=" * 80)
@@ -219,10 +250,14 @@ def main():
 
     # Scan downloads
     print(f"Scanning downloads in: {input_dir}")
-    downloads = scan_downloads(input_dir)
+    downloads = scan_downloads(
+        input_dir, active_species=active_species,
+        folder_style=profile.folder_styles.get("per_species_flacs", "space"),
+        species_overrides=profile.species_overrides,
+    )
 
     # Load metadata for completeness check
-    metadata = load_metadata(metadata_dir)
+    metadata = load_metadata(metadata_dir, active_species=active_species) if metadata_dir else None
     if metadata is None:
         print(f"Warning: Metadata directory '{metadata_dir}' not found. Completeness will show N/A.")
     else:
@@ -253,7 +288,7 @@ def main():
     total_duration = 0.0
 
     # Progress bar for species processing
-    species_pbar = tqdm(ACTIVE_SPECIES, desc="Processing species", unit="species")
+    species_pbar = tqdm(active_species, desc="Processing species", unit="species")
     for english, scientific, code in species_pbar:
         # Update progress bar with current species
         species_pbar.set_postfix_str(f"{english[:20]}")

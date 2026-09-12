@@ -4,10 +4,14 @@ import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import requests
 
-from config import SPECIES, VALID_QUALITIES, folder_name, resolve_species, PER_SPECIES_FLACS
+from config import (
+    SPECIES, VALID_QUALITIES, folder_name, resolve_species, PER_SPECIES_FLACS,
+    get_profile, _load_species, resolve_species_dir,
+)
 
 
 def parse_ids(raw_ids):
@@ -151,10 +155,18 @@ def main():
         help="Text file with one XC ID per line (# comments and blank lines ignored).",
     )
     parser.add_argument(
+        "--dataset", choices=["mygardenbird", "sea-bird30"],
+        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+        help="Which dataset's species catalogue/paths to use. Default: mygardenbird "
+             "(or $PIPELINE_DATASET if set). Also controls how --species resolves the "
+             "destination folder (space-named for mygardenbird, underscore-named with "
+             "overrides for sea-bird30).",
+    )
+    parser.add_argument(
         "--species",
         nargs="+",
         help="Species (common name, scientific name, or eBird code). "
-             "When provided, files are saved to <output-dir>/<English name>/<quality>/.",
+             "When provided, files are saved to <output-dir>/<species folder>/<quality>/.",
     )
     parser.add_argument(
         "--quality",
@@ -164,8 +176,9 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default=str(PER_SPECIES_FLACS),
-        help=f"Base output directory. Default: {PER_SPECIES_FLACS}",
+        default=None,
+        help=f"Base output directory. Default: the selected dataset's per_species_flacs dir "
+             f"(MyGardenBird: {PER_SPECIES_FLACS}).",
     )
     parser.add_argument(
         "--dry-run",
@@ -173,6 +186,17 @@ def main():
         help="Show what would be downloaded without actually downloading.",
     )
     args = parser.parse_args()
+
+    # Resolve dataset profile, then defer path/species-catalogue defaults
+    # until now (argparse evaluates default= before --dataset is parsed).
+    profile = get_profile(args.dataset)
+    if args.dataset == "mygardenbird":
+        catalogue = None  # resolve_species(..., None) falls back to module-level SPECIES
+    else:
+        catalogue, _ = _load_species(profile.species_csv)
+
+    if args.output_dir is None:
+        args.output_dir = str(profile.per_species_flacs)
 
     # Collect IDs from positional args and/or file
     raw_ids = list(args.ids) if args.ids else []
@@ -187,16 +211,33 @@ def main():
         print("Error: No valid IDs found.")
         sys.exit(1)
 
-    # Determine save folder
+    # Determine save folder. Uses resolve_species_dir() (rather than a plain
+    # folder_name() call) so --species correctly resolves SEA-BIRD30's
+    # underscore-named / overridden species folders (e.g. "Pied Fantail" ->
+    # flacs/Malaysian_Pied_Fantail) instead of creating a new, wrong,
+    # space-named duplicate folder alongside the real one.
     if args.species:
         species_name = " ".join(args.species)
-        result = resolve_species(species_name)
+        result = resolve_species(species_name, catalogue)
         if not result:
             print(f"Error: Unknown species '{species_name}'")
-            print("Known species: " + ", ".join(code for _, _, code in SPECIES))
+            all_species = catalogue if catalogue is not None else SPECIES
+            print("Known species: " + ", ".join(code for _, _, code in all_species))
             sys.exit(1)
         english, scientific, ebird_code = result
-        save_folder = os.path.join(args.output_dir, folder_name(english), args.quality)
+        style = profile.folder_styles.get("per_species_flacs", "space")
+        base_dir = Path(args.output_dir)
+        try:
+            species_dir = resolve_species_dir(base_dir, english, style, profile.species_overrides)
+        except FileNotFoundError:
+            # Folder doesn't exist yet (first download for this species) --
+            # compute where it SHOULD go using the same style/override rules.
+            if style == "underscore":
+                folder = profile.species_overrides.get(english, english.replace(" ", "_"))
+            else:
+                folder = profile.species_overrides.get(english, folder_name(english))
+            species_dir = base_dir / folder
+        save_folder = os.path.join(species_dir, args.quality)
     else:
         save_folder = args.output_dir
 

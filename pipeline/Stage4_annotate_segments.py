@@ -54,10 +54,11 @@ INITIAL_THRESHOLD_MULT = 3.0      # lower = more sensitive
 
 # Handle config import gracefully
 try:
-    from config import PER_SPECIES_FLACS, PER_SPECIES_CSV, normalise_type
+    from config import PER_SPECIES_FLACS, PER_SPECIES_CSV, normalise_type, get_profile
     DEFAULT_SOUND_DIR = str(PER_SPECIES_FLACS)
 except ImportError:
     DEFAULT_SOUND_DIR = os.getcwd()
+    get_profile = None
     def normalise_type(t):
         return t.lower() if t else "birdsong"
 
@@ -719,10 +720,24 @@ def interactive_segment_detector(audio_path):
 # ── Entry Point ──────────────────────────────────────────────────────────────
 def parse_args():
     parser = argparse.ArgumentParser(description="Interactive bird vocalization segment detector using blob analysis")
-    parser.add_argument("--sound-dir", default=DEFAULT_SOUND_DIR,
-                        help=f"Path to sound files folder (default: '{DEFAULT_SOUND_DIR}')")
+    if get_profile is not None:
+        parser.add_argument("--dataset", choices=["mygardenbird", "sea-bird30"],
+                            default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+                            help="Which dataset's default sound dir to use. Default: mygardenbird "
+                                 "(or $PIPELINE_DATASET if set). Only affects --sound-dir's default; "
+                                 "pass --sound-dir explicitly to point at any folder directly, "
+                                 "as before.")
+    parser.add_argument("--sound-dir", default=None,
+                        help=f"Path to sound files folder (default: the selected dataset's "
+                             f"per_species_flacs dir; MyGardenBird: '{DEFAULT_SOUND_DIR}')")
     parser.add_argument("--file", type=str, help="Direct path to audio file (skip file dialog)")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.sound_dir is None:
+        if get_profile is not None:
+            args.sound_dir = str(get_profile(args.dataset).per_species_flacs)
+        else:
+            args.sound_dir = DEFAULT_SOUND_DIR
+    return args
 
 
 if __name__ == "__main__":

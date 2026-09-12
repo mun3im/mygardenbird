@@ -27,6 +27,7 @@ silence is detected and reported but not used as a rejection criterion.
 
 import argparse
 import csv
+import os
 import sys
 from collections import defaultdict
 
@@ -36,7 +37,10 @@ import librosa
 import numpy as np
 from tqdm import tqdm
 
-from config import ACTIVE_SPECIES, MYGARDENBIRD_16K, METADATA_16K, PER_SPECIES_CSV, RECORDINGS_CSV, normalise_type
+from config import (
+    ACTIVE_SPECIES, MYGARDENBIRD_16K, METADATA_16K, PER_SPECIES_CSV, RECORDINGS_CSV,
+    normalise_type, get_profile,
+)
 
 _COMMON_TO_INFO = {common.lower(): (common, scientific, code)
                    for common, scientific, code in ACTIVE_SPECIES}
@@ -303,7 +307,10 @@ def _parse_stem(wav_name):
                 xc_id, onset_ms = parts[0], parts[1]
     except Exception:
         pass
-    file_id = f"XC{xc_id}_{onset_ms}" if (xc_id and onset_ms) else (f"XC{xc_id}" if xc_id else stem)
+    # Lowercase "xc" prefix (not "XC") -- matches every other file_id
+    # convention in both datasets. Was uppercase here, a real bug that
+    # broke clips.csv<->splits_*.csv joins twice before being fixed.
+    file_id = f"xc{xc_id}_{onset_ms}" if (xc_id and onset_ms) else (f"xc{xc_id}" if xc_id else stem)
     return xc_id, onset_ms, file_id
 
 
@@ -409,26 +416,68 @@ Examples:
     )
 
     parser.add_argument(
+        "--dataset", choices=["mygardenbird", "sea-bird30"],
+        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+        help="Which dataset's default paths to use. Default: mygardenbird "
+             "(or $PIPELINE_DATASET if set).",
+    )
+    parser.add_argument(
+        "--sample-rate", type=int, default=16000,
+        help="Sample rate variant of input_dir/output_dir to default to, if not "
+             "given explicitly. Default: 16000.",
+    )
+    parser.add_argument(
         "input_dir",
         nargs="?",
-        default=str(MYGARDENBIRD_16K),
-        help=f"Directory of extracted WAV segments organised by species subfolder. Default: {MYGARDENBIRD_16K}",
+        default=None,
+        help=f"Directory of extracted WAV segments organised by species subfolder. "
+             f"Default: the selected dataset's clips dir at --sample-rate "
+             f"(MyGardenBird 16kHz: {MYGARDENBIRD_16K}).",
     )
     parser.add_argument(
-        "--output-dir", default=str(METADATA_16K),
-        help=f"Output directory for metadata CSVs (clips.csv, qc_report.csv). Default: {METADATA_16K}",
+        "--output-dir", default=None,
+        help=f"Output directory for metadata CSVs (clips.csv, qc_report.csv). Default: "
+             f"the selected dataset's metadata dir at --sample-rate "
+             f"(MyGardenBird 16kHz: {METADATA_16K}).",
     )
     parser.add_argument(
-        "--metadata-dir", default=str(PER_SPECIES_CSV),
+        "--metadata-dir", default=None,
         help=f"Directory containing Stage 1 per-species CSV files. "
-             f"Provides lat/lon/quality_grade/recording_type/country. Default: {PER_SPECIES_CSV}",
+             f"Provides lat/lon/quality_grade/recording_type/country. Default: the "
+             f"selected dataset's per_species_csv dir (MyGardenBird: {PER_SPECIES_CSV}; "
+             f"SEA-BIRD30 has none -- recordings.csv generation gets no XC metadata "
+             f"unless --skip-recordings-csv is used or this is passed explicitly).",
     )
     parser.add_argument(
-        "--recordings-csv", default=str(RECORDINGS_CSV),
-        help=f"Path to top-level recordings.csv (shared by both 16kHz and 44kHz variants). Default: {RECORDINGS_CSV}",
+        "--recordings-csv", default=None,
+        help=f"Path to top-level recordings.csv. Default: the selected dataset's "
+             f"recordings_csv (MyGardenBird: {RECORDINGS_CSV}).",
+    )
+    parser.add_argument(
+        "--skip-recordings-csv", action="store_true",
+        help="Don't generate/touch recordings.csv at all -- just clips.csv and "
+             "qc_report.csv. Use for datasets (e.g. SEA-BIRD30) whose recordings.csv "
+             "is maintained separately and should never be written by this script.",
     )
 
     args = parser.parse_args()
+
+    profile = get_profile(args.dataset)
+
+    if args.sample_rate not in profile.clips_dirs:
+        supported = sorted(profile.clips_dirs)
+        print(f"Error: dataset '{args.dataset}' has no {args.sample_rate} Hz variant. "
+              f"Supported sample rates: {supported}. Pass --input-dir/--output-dir to override.")
+        sys.exit(1)
+
+    if args.input_dir is None:
+        args.input_dir = str(profile.clips_dirs[args.sample_rate])
+    if args.output_dir is None:
+        args.output_dir = str(profile.metadata_dirs[args.sample_rate])
+    if args.metadata_dir is None:
+        args.metadata_dir = str(profile.per_species_csv) if profile.per_species_csv else None
+    if args.recordings_csv is None:
+        args.recordings_csv = str(profile.recordings_csv)
 
     input_dir       = Path(args.input_dir)
     output_dir      = Path(args.output_dir)
@@ -446,17 +495,22 @@ Examples:
     print("  - Computes SNR, RMS energy, peak amplitude, clipping detection")
     print("  - Generates clips.csv (dataset manifest for training)")
     print("  - Generates qc_report.csv (quality control statistics)")
-    print("  - Generates recordings.csv (source recording metadata)")
+    if args.skip_recordings_csv:
+        print("  - Skips recordings.csv (--skip-recordings-csv)")
+    else:
+        print("  - Generates recordings.csv (source recording metadata)")
     print()
     print("INPUT:")
     print(f"  - WAV segments: {input_dir}/<Species Name>/xc####_####.wav")
-    print(f"  - XC metadata: {args.metadata_dir}/<Scientific_name>.csv")
+    if not args.skip_recordings_csv:
+        print(f"  - XC metadata: {args.metadata_dir}/<Scientific_name>.csv")
     print()
     print("OUTPUT:")
     print(f"  - Dataset manifest: {output_dir}/clips.csv")
     print(f"      (file_id, source_id, onset_ms, sampling_rate, snr_db, ...)")
     print(f"  - QC report: {output_dir}/qc_report.csv")
-    print(f"  - Source metadata: {recordings_path}")
+    if not args.skip_recordings_csv:
+        print(f"  - Source metadata: {recordings_path}")
     print("=" * 80)
     print()
 
@@ -473,22 +527,26 @@ Examples:
 
     save_qc_report(results, output_dir / "qc_report.csv")
 
-    print()
-    print("Loading XC metadata...")
-    xc_metadata = load_xc_metadata(args.metadata_dir) if args.metadata_dir else {}
-
-    if not xc_metadata:
-        print("  Warning: no metadata dir / no CSVs found — lat/lon/quality/type/country will be empty.")
-
-    # Write recordings.csv to top level (shared by both 16kHz and 44kHz variants)
-    # Only generate if it doesn't exist, to avoid re-parsing XC metadata repeatedly
-    if not recordings_path.exists():
+    if args.skip_recordings_csv:
         print()
-        print(f"Generating top-level recordings.csv at {recordings_path}...")
-        generate_recordings_csv(results, recordings_path, xc_metadata)
+        print("Skipping recordings.csv generation (--skip-recordings-csv).")
     else:
         print()
-        print(f"Using existing recordings.csv at {recordings_path}")
+        print("Loading XC metadata...")
+        xc_metadata = load_xc_metadata(args.metadata_dir) if args.metadata_dir else {}
+
+        if not xc_metadata:
+            print("  Warning: no metadata dir / no CSVs found — lat/lon/quality/type/country will be empty.")
+
+        # Write recordings.csv to top level (shared by both 16kHz and 44kHz variants)
+        # Only generate if it doesn't exist, to avoid re-parsing XC metadata repeatedly
+        if not recordings_path.exists():
+            print()
+            print(f"Generating top-level recordings.csv at {recordings_path}...")
+            generate_recordings_csv(results, recordings_path, xc_metadata)
+        else:
+            print()
+            print(f"Using existing recordings.csv at {recordings_path}")
 
     # Write variant-specific metadata (clips.csv, qc_report.csv) to output_dir
     generate_clips_csv(results, output_dir / "clips.csv")

@@ -46,7 +46,7 @@ for i in range(100):
 # 3. Always close the bar when finished
 pbar.close()
 
-from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K
+from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K, get_profile
 
 try:
     import matplotlib.pyplot as plt
@@ -1107,14 +1107,26 @@ Genetic Algorithm:
         """
     )
 
-    parser.add_argument('--dataset', type=str, default=str(MYGARDENBIRD_16K),
-                       help='Path to dataset directory')
+    parser.add_argument('--dataset-profile', choices=['mygardenbird', 'sea-bird30'],
+                       default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+                       dest='dataset_profile_name',
+                       help="Which dataset's default --dataset/--output paths to use. Default: "
+                            "mygardenbird (or $PIPELINE_DATASET if set). Distinct from --dataset "
+                            "(below), which is the clips DIRECTORY path.")
+    parser.add_argument('--dataset', type=str, default=None,
+                       help=f'Path to dataset (clips) directory. Default: the selected '
+                            f'--dataset-profile\'s clips dir at --sample-rate '
+                            f'(MyGardenBird 16kHz: {MYGARDENBIRD_16K}).')
+    parser.add_argument('--sample-rate', type=int, default=16000,
+                       help='Sample rate variant to default --dataset/--output to, if not given '
+                            'explicitly. Default: 16000.')
     parser.add_argument('--dataset-label', type=str, default=None,
                        help='Short label identifying the dataset variant, included in the output '
-                            'filename (e.g. "16khz", "44khz"). Auto-derived from --dataset path '
-                            'when not given: "44khz" if the path contains "44", else "16khz".')
+                            'filename (e.g. "16khz", "44khz"). Auto-derived from --sample-rate '
+                            'when not given.')
     parser.add_argument('--output', type=str, default=None,
-                       help='Output directory for split files (default: metadata directory corresponding to --dataset)')
+                       help='Output directory for split files (default: metadata directory '
+                            'corresponding to --dataset-profile/--sample-rate)')
     parser.add_argument('--train_ratio', type=float, default=0.80,
                        help='Target train ratio (default: 0.80)')
     parser.add_argument('--val_ratio', type=float, default=0.10,
@@ -1151,19 +1163,31 @@ Genetic Algorithm:
     args = parser.parse_args()
     verbose = not args.quiet
 
-    # Build dataset label and auto-name the splits CSV
-    _label = args.dataset_label or ('44khz' if '44' in str(args.dataset) else '16khz')
+    dataset_explicitly_set = args.dataset is not None
+
+    profile = get_profile(args.dataset_profile_name)
+    if args.sample_rate not in profile.clips_dirs:
+        supported = sorted(profile.clips_dirs)
+        print(f"ERROR: dataset-profile '{args.dataset_profile_name}' has no "
+              f"{args.sample_rate} Hz variant. Supported: {supported}. "
+              f"Pass --dataset/--output to override.")
+        return 1
+
+    if args.dataset is None:
+        args.dataset = str(profile.clips_dirs[args.sample_rate])
+
+    # Build dataset label and auto-name the splits CSV -- looked up from
+    # --sample-rate instead of substring-matching "44" in --dataset (see
+    # Stage8_splitter_mip.py for the same fix and its rationale).
+    _label = args.dataset_label or f"{args.sample_rate // 1000}khz"
     _t  = int(round(args.train_ratio * 100))
     _v  = int(round(args.val_ratio   * 100))
     _te = int(round(args.test_ratio  * 100))
     _auto_csv = f"splits_ga_{_t}_{_v}_{_te}.csv"
 
-    # Auto-select output directory based on dataset path if not specified
+    # Auto-select output directory if not specified
     if args.output is None:
-        if '44' in str(args.dataset):
-            args.output = str(METADATA_44K)
-        else:
-            args.output = str(METADATA_16K)
+        args.output = str(profile.metadata_dirs[args.sample_rate])
 
     # Validate ratios sum to 1.0
     ratio_sum = args.train_ratio + args.val_ratio + args.test_ratio
@@ -1212,8 +1236,12 @@ Genetic Algorithm:
             saved_dataset_path = config.get('dataset_path')
 
             if saved_dataset_path:
-                # Check if user provided a different dataset path
-                if args.dataset != '/Volumes/Evo/seabird16khz_flat':  # Not the default
+                # Check if user provided a different dataset path (was a
+                # stale hardcoded sentinel comparison against a naming
+                # scheme that predates both current datasets; now an
+                # explicit flag captured before --dataset's default was
+                # resolved from the dataset profile).
+                if dataset_explicitly_set:
                     # User explicitly specified a dataset path
                     dataset_path = args.dataset
                     if verbose:

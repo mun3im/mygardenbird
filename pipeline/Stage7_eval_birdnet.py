@@ -14,15 +14,25 @@ For each 3-second clip:
   - argmax → predicted species
   - Compare to ground truth
 
-Run with:
-    conda run -n birdnet python eval_birdnet_mygardenbird.py \
+This script has no config.py dependency (fully argparse-driven; --audio_dir
+is required, no default), so it already works against either dataset --
+just point --audio_dir/--splits_csv at whichever tree you're evaluating.
+
+Run against MyGardenBird:
+    conda run -n birdnet python Stage7_eval_birdnet.py \
         --splits_csv metadata16khz/splits_mip_75_10_15.csv \
         --audio_dir /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \
         --output_dir birdnet_results/split_75_10_15
 
-Run all 3 splits:
+Run against SEA-BIRD30:
+    conda run -n birdnet python Stage7_eval_birdnet.py \
+        --splits_csv /Volumes/Evo/SEA-BIRD30/metadata/splits_mip_80_10_10.csv \
+        --audio_dir /Volumes/Evo/SEA-BIRD30/wavs \
+        --output_dir birdnet_results/sea-bird30_80_10_10
+
+Run all 3 MyGardenBird splits:
     for split in 70_15_15 75_10_15 80_10_10; do
-        conda run -n birdnet python eval_birdnet_mygardenbird.py \
+        conda run -n birdnet python Stage7_eval_birdnet.py \
             --splits_csv metadata16khz/splits_mip_${split}.csv \
             --audio_dir /Volumes/Evo/MYGARDENBIRD/mygardenbird16khz \
             --output_dir birdnet_results/split_${split}

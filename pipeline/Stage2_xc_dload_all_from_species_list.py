@@ -8,23 +8,30 @@ import time
 import pandas as pd
 import requests
 
-from config import ACTIVE_SPECIES, VALID_QUALITIES, folder_name, resolve_species, PER_SPECIES_FLACS, PER_SPECIES_CSV
+from config import (
+    ACTIVE_SPECIES, VALID_QUALITIES, folder_name, resolve_species,
+    PER_SPECIES_FLACS, PER_SPECIES_CSV, get_profile, _load_species,
+    resolve_species_dir,
+)
 
 # Stage 1 already applies regional filtering (lon 60-140 OR ASEAN) and duration filtering (>=3s)
 # Stage 2 just downloads what's in the CSV
 MIN_DURATION_S = 3.0   # Still used in _mp3_to_mono_flac for safety check
 
 
-def get_xc_ids_from_csv(common_name, quality):
+def get_xc_ids_from_csv(common_name, quality, per_species_csv_dir=PER_SPECIES_CSV):
     """Load XC IDs from Stage1 CSV for given species and quality.
 
     Stage 1 CSVs now contain ONLY regional-filtered records (lon 60-140 OR ASEAN, >=3s).
     No additional filtering needed - just read and filter by quality.
 
     Uses English common name to match Stage 1 CSV naming convention.
+    `per_species_csv_dir` defaults to MyGardenBird's PER_SPECIES_CSV for
+    backward compatibility; pass a different profile's per_species_csv to
+    look elsewhere (None if that dataset has no such directory).
     """
     safe = common_name.replace(" ", "_").replace("/", "-").replace(":", "-")
-    csv_path = os.path.join(PER_SPECIES_CSV, f"{safe}.csv")
+    csv_path = os.path.join(per_species_csv_dir, f"{safe}.csv")
 
     if not os.path.isfile(csv_path):
         print(f"    WARNING: No Stage1 metadata found at {csv_path}")
@@ -169,19 +176,31 @@ def download_recording(xc_id, save_folder):
             os.unlink(tmp_path)
 
 
-def download_species(scientific_name, english_name, ebird_code, qualities, output_dir, dry_run, api_key=None):
+def download_species(scientific_name, english_name, ebird_code, qualities, output_dir, dry_run,
+                      api_key=None, per_species_csv_dir=PER_SPECIES_CSV,
+                      folder_style="space", species_overrides=None):
     """Download recordings for one species across the given quality levels.
 
     Reads XC IDs from Stage 1 CSVs (already filtered for regional + duration criteria).
     No additional filtering needed - just download what's in the CSV.
+
+    `folder_style`/`species_overrides` select how the species subfolder name
+    under output_dir is derived -- "space" (default, folder_name(), matches
+    MyGardenBird) or "underscore" (matches SEA-BIRD30's flacs/ convention),
+    with explicit per-species overrides (e.g. "Pied Fantail" ->
+    "Malaysian_Pied_Fantail") checked first either way.
     """
-    species_folder = folder_name(english_name)
+    overrides = species_overrides or {}
+    if folder_style == "underscore":
+        species_folder = overrides.get(english_name, english_name.replace(" ", "_"))
+    else:
+        species_folder = overrides.get(english_name, folder_name(english_name))
     counts = {}
     for quality in qualities:
         save_folder = os.path.join(output_dir, species_folder, quality)
 
         # Load XC IDs from Stage1 metadata (already regional-filtered)
-        xc_ids = get_xc_ids_from_csv(english_name, quality)
+        xc_ids = get_xc_ids_from_csv(english_name, quality, per_species_csv_dir)
         if xc_ids is None:
             print(f"    Skipping quality {quality}: no Stage1 metadata available")
             counts[quality] = 0
@@ -232,18 +251,24 @@ def download_species(scientific_name, english_name, ebird_code, qualities, outpu
     return counts
 
 
-def list_species():
+def list_species(active_species=ACTIVE_SPECIES):
     """Print active species and exit."""
     print(f"{'Common Name':<35} {'Scientific Name':<30} {'eBird Code'}")
     print("-" * 80)
-    for common, scientific, code in ACTIVE_SPECIES:
+    for common, scientific, code in active_species:
         print(f"{common:<35} {scientific:<30} {code}")
-    print(f"\n{len(ACTIVE_SPECIES)} active species (edit 'active' column in target_species.csv to change)")
+    print(f"\n{len(active_species)} active species (edit 'active' column in target_species.csv to change)")
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Stage 2: Download Xeno-Canto recordings for active species.",
+    )
+    parser.add_argument(
+        "--dataset", choices=["mygardenbird", "sea-bird30"],
+        default=os.environ.get("PIPELINE_DATASET", "mygardenbird"),
+        help="Which dataset's species catalogue/paths to use. Default: mygardenbird "
+             "(or $PIPELINE_DATASET if set).",
     )
     parser.add_argument(
         "--species",
@@ -261,8 +286,9 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default=str(PER_SPECIES_FLACS),
-        help=f"Base output directory. Default: {PER_SPECIES_FLACS}",
+        default=None,
+        help=f"Base output directory. Default: the selected dataset's per_species_flacs dir "
+             f"(MyGardenBird: {PER_SPECIES_FLACS}).",
     )
     parser.add_argument(
         "--list-species",
@@ -281,8 +307,20 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolve dataset profile, then defer path/species-list defaults until
+    # now (argparse evaluates default= before --dataset itself is parsed).
+    profile = get_profile(args.dataset)
+    if args.dataset == "mygardenbird":
+        active_catalogue = list(ACTIVE_SPECIES)
+        full_catalogue = None  # resolve_species(..., None) falls back to module-level SPECIES
+    else:
+        full_catalogue, active_catalogue = _load_species(profile.species_csv)
+
+    if args.output_dir is None:
+        args.output_dir = str(profile.per_species_flacs)
+
     if args.list_species:
-        list_species()
+        list_species(active_catalogue)
         sys.exit(0)
 
     # Auto-load API key from xc_key.txt if not provided via command line
@@ -297,7 +335,7 @@ def main():
 
     # Resolve species list
     if len(args.species) == 1 and args.species[0].lower() == "all":
-        species_list = list(ACTIVE_SPECIES)
+        species_list = list(active_catalogue)
     else:
         species_list = []
         # Rejoin args in case a multi-word name was passed as separate tokens
@@ -310,7 +348,7 @@ def main():
             # Try longest possible match first (up to 3 tokens for names like "Large-tailed Nightjar")
             for length in range(min(3, len(tokens) - i), 0, -1):
                 candidate = " ".join(tokens[i:i + length])
-                result = resolve_species(candidate)
+                result = resolve_species(candidate, full_catalogue)
                 if result:
                     species_list.append(result)
                     i += length
@@ -336,15 +374,17 @@ def main():
     print()
     print("NOTE:")
     print("  - Only downloads species with active=yes in target_species.csv")
-    from pathlib import Path
-    project_csv_dir = Path(PER_SPECIES_CSV).parent / "project_csv"
-    print(f"  - To shortlist species: Edit {project_csv_dir}/target_species.csv")
-    print(f"      Set active=yes for species you want (e.g., 12 out of 50)")
+    print(f"  - To shortlist species: Edit {profile.species_csv}")
+    print(f"      Set active=yes for species you want")
     print(f"      Set active=no for species you want to skip")
     print()
     print("INPUT:")
-    print(f"  - Species metadata: {PER_SPECIES_CSV}/<English_name>.csv")
-    print(f"      (Generated by Stage 1 using English names)")
+    if profile.per_species_csv is not None:
+        print(f"  - Species metadata: {profile.per_species_csv}/<English_name>.csv")
+        print(f"      (Generated by Stage 1 using English names)")
+    else:
+        print(f"  - Dataset '{args.dataset}' has no per_species_csv directory; "
+              f"pass --output-dir/species metadata some other way if needed.")
     print(f"  - Species to download: {len(species_list)} species (active=yes)")
     if len(species_list) <= 5:
         for common, sci, code in species_list:
@@ -367,7 +407,12 @@ def main():
     grand_total = 0
     for idx, (english, scientific, code) in enumerate(species_list, 1):
         print(f"[{idx}/{len(species_list)}] Downloading {english} ({scientific})...")
-        counts = download_species(scientific, english, code, qualities, output_dir, args.dry_run, api_key)
+        counts = download_species(
+            scientific, english, code, qualities, output_dir, args.dry_run, api_key,
+            per_species_csv_dir=profile.per_species_csv,
+            folder_style=profile.folder_styles.get("per_species_flacs", "space"),
+            species_overrides=profile.species_overrides,
+        )
         grand_total += sum(counts.values())
         print()
 
