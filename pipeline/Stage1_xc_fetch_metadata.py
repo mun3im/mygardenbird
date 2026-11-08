@@ -202,7 +202,8 @@ def _save_records_csv(
         if no_region_filter:
             pass  # keep all records regardless of geography
         else:
-            df["_lon"] = pd.to_numeric(df.get("lng"), errors="coerce")
+            # XC API v3 names the field "lon"; v2 used "lng".
+            df["_lon"] = pd.to_numeric(df.get("lon", df.get("lng")), errors="coerce")
 
             # Condition 1: Valid longitude in range [lon_min, lon_max]
             lon_mask = df["_lon"].notna() & (df["_lon"] > lon_min) & (df["_lon"] < lon_max)

@@ -51,6 +51,8 @@ for i in range(100):
 pbar.close()
 
 
+import csv as _csv
+
 from config import MYGARDENBIRD_16K, MYGARDENBIRD_44K, METADATA_16K, METADATA_44K, get_profile
 
 try:
@@ -117,6 +119,84 @@ def load_dataset_structure(dataset_path: str) -> Dict[str, Dict[str, List[str]]]
             structure[class_name][source].append(audio_file.name)
 
     return structure
+
+
+def load_site_keys(recordings_csv: Path, round_decimals: int = 2) -> Dict[str, str]:
+    """
+    Map source_id -> site_key = (recordist, round(lat, round_decimals), round(lon, round_decimals)).
+
+    Recordings missing a recordist or coordinates cannot be reliably grouped
+    with anything else, so each becomes its own singleton site keyed on its
+    source_id -- this never merges them with an unrelated recording, and
+    never excludes them from the split either.
+
+    Rationale: grouping by source_id alone (the existing behaviour) prevents
+    the same Xeno-canto recording from leaking across train/val/test, but
+    does not prevent *different* recordings made by the same person at the
+    same site (e.g. a garden mic recording the same resident bird on
+    different days) from landing in different splits -- letting a model
+    partially learn site/microphone signature rather than species. Rounding
+    coordinates to 2 decimal degrees (~1 km) catches near-duplicate site
+    coordinates without merging genuinely distant recordings.
+    """
+    site_keys = {}
+    with open(recordings_csv, newline="", encoding="utf-8") as f:
+        for row in _csv.DictReader(f):
+            source_id = row.get("source_id", "").strip()
+            if not source_id:
+                continue
+            recordist = row.get("recordist", "").strip().lower()
+            lat = row.get("latitude", "").strip()
+            lon = row.get("longitude", "").strip()
+            if recordist and lat and lon:
+                try:
+                    site_keys[source_id] = f"{recordist}|{round(float(lat), round_decimals)}|{round(float(lon), round_decimals)}"
+                    continue
+                except ValueError:
+                    pass
+            site_keys[source_id] = f"solo|{source_id}"
+    return site_keys
+
+
+def regroup_by_site(structure: Dict[str, Dict[str, List[str]]],
+                     recordings_csv: Path,
+                     round_decimals: int = 2,
+                     verbose: bool = True) -> Dict[str, Dict[str, List[str]]]:
+    """
+    Re-key `structure` from class -> source_id -> files to
+    class -> site_key -> files, merging all source_ids that share a site
+    (same recordist, same rounded coordinates) into one group. The MIP
+    optimizer and CSV writer are unchanged -- they just treat the new,
+    coarser keys as atomic assignment units, closing the site-level leakage
+    a reviewer flagged (some test clips shared a recordist+location with
+    training clips despite having different source_ids).
+    """
+    site_keys = load_site_keys(recordings_csv, round_decimals=round_decimals)
+
+    regrouped: Dict[str, Dict[str, List[str]]] = {}
+    sources_merged = 0
+    singleton_sources = 0
+    for class_name, sources in structure.items():
+        merged = defaultdict(list)
+        for source_id, files in sources.items():
+            # `source_id` here is the raw filename-stem source, e.g. "xc1002657"
+            # (see load_dataset_structure); recordings.csv's source_id has no
+            # "xc" prefix, so strip it before looking up the site key.
+            lookup_id = source_id[2:] if source_id.lower().startswith("xc") else source_id
+            key = site_keys.get(lookup_id, f"solo|{source_id}")
+            if key.startswith("solo|"):
+                singleton_sources += 1
+            merged[key].extend(files)
+        regrouped[class_name] = dict(merged)
+        sources_merged += sum(1 for k, v in merged.items() if not k.startswith("solo|"))
+
+    if verbose:
+        total_sites = sum(len(v) for v in regrouped.values())
+        total_sources = sum(len(v) for v in structure.values())
+        print(f"🔗 Site-grouping: {total_sources} sources -> {total_sites} sites "
+              f"({singleton_sources} singleton -- no recordist+coords to group on)")
+
+    return regrouped
 
 
 # ============================================================================
@@ -521,7 +601,7 @@ def create_splits_csv(structure: Dict[str, Dict[str, List[str]]],
 # VISUALIZATION
 # ============================================================================
 
-def plot_split_distribution(stats: Dict, output_path: Path):
+def plot_split_distribution(stats: Dict, output_path: Path, filename: str = 'split_distribution_mip.png'):
     """Create visualization of the split distribution."""
     if not HAS_MATPLOTLIB:
         return
@@ -576,10 +656,10 @@ def plot_split_distribution(stats: Dict, output_path: Path):
     ax2.set_ylim([0, 1])
 
     plt.tight_layout()
-    plt.savefig(output_path / 'split_distribution_mip.png', dpi=150, bbox_inches='tight')
+    plt.savefig(output_path / filename, dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"   ✓ Saved plot: {output_path / 'split_distribution_mip.png'}")
+    print(f"   ✓ Saved plot: {output_path / filename}")
 
 
 # ============================================================================
@@ -637,6 +717,19 @@ Examples:
                        help='Random seed for reproducibility (default: 42)')
     parser.add_argument('--quiet', action='store_true',
                        help='Suppress progress messages')
+    parser.add_argument('--group-by-site', action='store_true',
+                       help='Group by (recordist, rounded coordinates) instead of by raw '
+                            'source_id, so recordings sharing a site cannot land in different '
+                            'splits (closes the site-level leakage a reviewer flagged for the '
+                            'source_id-only split). Output auto-names '
+                            '"splits_mip_<ratios>_sitegrouped.csv" unless --output is given.')
+    parser.add_argument('--recordings-csv', type=str, default=None,
+                       help='Path to recordings.csv, used only with --group-by-site to look up '
+                            'recordist/lat/lon per source_id. Default: the selected '
+                            '--dataset-profile\'s recordings_csv.')
+    parser.add_argument('--site-round-decimals', type=int, default=2,
+                       help='Decimal places to round lat/lon to when forming a site key with '
+                            '--group-by-site (default: 2, ~1 km).')
 
     args = parser.parse_args()
     verbose = not args.quiet
@@ -661,7 +754,8 @@ Examples:
     _t  = int(round(args.train_ratio * 100))
     _v  = int(round(args.val_ratio   * 100))
     _te = int(round(args.test_ratio  * 100))
-    _auto_csv = f"splits_mip_{_t}_{_v}_{_te}.csv"
+    _suffix = "_sitegrouped" if args.group_by_site else ""
+    _auto_csv = f"splits_mip_{_t}_{_v}_{_te}{_suffix}.csv"
 
     # Auto-select output directory if not specified
     if args.output is None:
@@ -714,6 +808,13 @@ Examples:
         print(f"ERROR: No data found in {args.dataset}")
         return 1
 
+    if args.group_by_site:
+        recordings_csv = Path(args.recordings_csv) if args.recordings_csv else profile.recordings_csv
+        structure = regroup_by_site(
+            structure, recordings_csv,
+            round_decimals=args.site_round_decimals, verbose=verbose,
+        )
+
     num_classes = len(structure)
     total_sources = sum(len(sources) for sources in structure.values())
     total_files = sum(
@@ -752,13 +853,15 @@ Examples:
                       seed=args.seed,
                       verbose=verbose)
 
-    # Save statistics next to CSV
+    # Save statistics next to CSV (same stem as the CSV, so a
+    # --group-by-site run's stats never clobber the plain run's stats)
     stats_dir = csv_path.parent
-    stats_file = stats_dir / 'split_stats.json'
+    stats_stem = csv_path.stem
+    stats_file = stats_dir / f'{stats_stem}_stats.json'
     with open(stats_file, 'w') as f:
         json.dump(stats, f, indent=2)
 
-    stats_text_file = stats_dir / 'split_stats.txt'
+    stats_text_file = stats_dir / f'{stats_stem}_stats.txt'
     with open(stats_text_file, 'w') as f:
         f.write(format_statistics_text(stats))
 
@@ -773,7 +876,7 @@ Examples:
         if verbose:
             print("📊 Generating plot...")
 
-        plot_split_distribution(stats, stats_dir)
+        plot_split_distribution(stats, stats_dir, filename=f'{stats_stem}_distribution.png')
         print()
 
     if verbose:

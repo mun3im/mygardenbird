@@ -13,6 +13,11 @@ from config import (
     get_profile, _load_species, resolve_species_dir,
 )
 
+from xc_download import (
+    MIN_DURATION_S, is_nd_licence, mp3_to_mono_flac, probe_audio,
+    resolve_api_key,
+)
+
 
 def parse_ids(raw_ids):
     """Extract numeric XC IDs from strings like 'XC123456', '123456', 'xc789'."""
@@ -38,73 +43,52 @@ def load_ids_from_file(filepath):
     return ids
 
 
-MIN_DURATION_S = 3.0   # clips shorter than this are skipped at download time
+def licence_for_ids(xc_ids, profile=None):
+    """Map XC id -> licence URL using whatever metadata is on disk.
 
-
-def _probe_audio(path):
-    """Return (sample_rate, duration_s) of an audio file via ffprobe.
-
-    Either value is None if it cannot be determined.
+    Stage 2 filters ND out at the catalogue level, but this stage takes
+    explicit ids and so has no catalogue to filter. Without this lookup a
+    delta download silently reintroduces the ND recordings the project has
+    gone to some trouble to remove.
     """
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe", "-v", "error",
-                "-select_streams", "a:0",
-                "-show_entries", "stream=sample_rate,duration",
-                "-of", "csv=p=0",
-                path,
-            ],
-            capture_output=True, text=True, timeout=15,
-        )
-        parts = result.stdout.strip().split(",")
-        sr  = int(parts[0])   if len(parts) > 0 and parts[0] else None
-        dur = float(parts[1]) if len(parts) > 1 and parts[1] else None
-        return sr, dur
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, IndexError):
-        return None, None
+    import csv
+    import glob
 
+    out = {}
+    roots = []
+    if profile is not None:
+        for attr in ("per_species_csv", "project_csv"):
+            d = getattr(profile, attr, None)
+            if d:
+                roots.append(str(d))
+    base = PER_SPECIES_FLACS.parent
+    # per_species_csv_old holds ids the current catalogue has dropped. A
+    # delta download is exactly the case where an old id gets named, so the
+    # superseded catalogue has to be consulted too or its ND rows read as
+    # "licence unknown" and sail through.
+    for extra in ("per_species_csv", "per_species_csv_old", "project_csv"):
+        d = str(base / extra)
+        if d not in roots:
+            roots.append(d)
 
-def _mp3_to_mono_flac(mp3_path, flac_path):
-    """Convert an MP3 file to mono FLAC using ffmpeg.
-
-    Pre-conversion:  recordings shorter than MIN_DURATION_S are skipped.
-    Post-conversion: asserts the output FLAC preserves the original sample rate.
-                     Resampling is intentionally deferred to Stage 6.
-
-    Returns True if the file was converted and passes all checks.
-    Returns False (and deletes any partial output) otherwise.
-    """
-    src_sr, src_dur = _probe_audio(mp3_path)
-
-    # Skip recordings that are too short
-    if src_dur is not None and src_dur < MIN_DURATION_S:
-        print(f"  Skipping XC{os.path.basename(mp3_path)}: {src_dur:.2f}s < {MIN_DURATION_S}s")
-        return False
-
-    try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", mp3_path,
-             "-ac", "1",      # mono — channel change only, no -ar flag
-             "-c:a", "flac",
-             flac_path],
-            capture_output=True, timeout=120,
-        )
-        if not (os.path.isfile(flac_path) and os.path.getsize(flac_path) > 0):
-            return False
-
-        # Assert sample rate was preserved
-        dst_sr, _ = _probe_audio(flac_path)
-        if src_sr is not None and dst_sr is not None and src_sr != dst_sr:
-            print(f"  ERROR: sample rate changed {src_sr} Hz -> {dst_sr} Hz in {flac_path}")
-            print(f"  Deleting corrupted output.")
-            os.unlink(flac_path)
-            return False
-
-        return True
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"  ffmpeg error: {e}")
-        return False
+    wanted = set(xc_ids)
+    patterns = []
+    for r in roots:
+        patterns += [os.path.join(r, "*.csv")]
+    for path in sorted({p for pat in patterns for p in glob.glob(pat)}):
+        try:
+            with open(path, newline="") as f:
+                for row in csv.DictReader(f):
+                    rid = (row.get("id") or row.get("file_id") or "").strip()
+                    rid = rid.lower().replace("xc", "")
+                    if rid in wanted and rid not in out:
+                        lic = (row.get("lic") or row.get("license")
+                               or row.get("licence") or "").strip()
+                        if lic:
+                            out[rid] = lic
+        except (OSError, csv.Error):
+            continue
+    return out
 
 
 def download_recording(xc_id, save_folder):
@@ -126,7 +110,7 @@ def download_recording(xc_id, save_folder):
                 if chunk:
                     tmp.write(chunk)
 
-        if _mp3_to_mono_flac(tmp_path, flac_filename):
+        if mp3_to_mono_flac(tmp_path, flac_filename):
             print(f"  Saved: {flac_filename}")
             return True
         else:
@@ -179,6 +163,13 @@ def main():
         default=None,
         help=f"Base output directory. Default: the selected dataset's per_species_flacs dir "
              f"(MyGardenBird: {PER_SPECIES_FLACS}).",
+    )
+    parser.add_argument(
+        "--no-skip-nd",
+        action="store_true",
+        help="Download ND-licensed recordings too (disables the default ND "
+             "filter). ND forbids derivative works and 3-second segmentation "
+             "is one, so these cannot be redistributed.",
     )
     parser.add_argument(
         "--dry-run",
@@ -269,6 +260,21 @@ def main():
 
     if args.dry_run:
         print(f"[DRY RUN] No files will be downloaded.\n")
+
+    if not args.no_skip_nd:
+        licences = licence_for_ids(xc_ids, profile)
+        nd_ids = [i for i in xc_ids if is_nd_licence(licences.get(i, ""))]
+        if nd_ids:
+            print(f"Skipping {len(nd_ids)} ND-licensed recording(s): "
+                  f"{', '.join('XC' + i for i in nd_ids)}")
+            print("  (pass --no-skip-nd to override)\n")
+            xc_ids = [i for i in xc_ids if i not in set(nd_ids)]
+        unknown = [i for i in xc_ids if i not in licences]
+        if unknown:
+            print(f"Warning: licence unknown for {len(unknown)} id(s): "
+                  f"{', '.join('XC' + i for i in unknown[:10])}"
+                  f"{' ...' if len(unknown) > 10 else ''}")
+            print("  These are downloaded anyway -- verify before publishing.\n")
 
     print(f"Processing {len(xc_ids)} ID(s)...\n")
 

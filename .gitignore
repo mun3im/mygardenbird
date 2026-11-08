@@ -35,6 +35,13 @@ extras/plot_confusion_composite.py
 
 # Pipeline state blobs
 .stage5_*.json
+# Annotator UI state (last folder, window geometry) -- per-machine.
+.stage4_state.json
+.stage4b_state.json
+# Annotation backlog snapshot, regenerated on demand.
+species_todo_ranking.csv
+# Crash log written by the Qt annotator.
+stage4b_errors.log
 
 # IDE and editor
 .idea/
@@ -111,6 +118,9 @@ extras/plot_confusion_composite.py
 /TRAINING_RESULTS_COMPARISON.md
 /TRIGGER_SYSTEM_GUIDE.md
 /xc_key.txt
+# Unanchored too: Stage 2 reads xc_key.txt from the pipeline directory,
+# and the anchored rule above would not catch it there.
+xc_key.txt
 /Helper9x_find_confused.py*.md
 
 # --- Training run outputs: never published to GitHub (summaries live in benchmark_summaries/) ---

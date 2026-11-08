@@ -175,6 +175,63 @@ def species_output_name(raw_species_folder, profile):
     return raw_species_folder.replace(" ", "_")
 
 
+def clean_species_outputs(annotation_pairs, output_dir, input_dir, profile,
+                          audio_format="wav", dry_run=False):
+    """Delete existing clips for every species represented in this run.
+
+    Extraction skips a clip whose file already exists, which keeps a re-run
+    cheap but cannot notice that an annotation changed: the onset is part of
+    the filename, so a nudged segment is written as a new file and the clip at
+    the old onset survives as an orphan no annotation refers to any more.
+    Removing the species' clips up front makes the output a faithful
+    reflection of the annotations instead of an accumulation of every onset
+    that was ever tried.
+
+    Only species present in `annotation_pairs` are cleaned, so running over
+    one species' folder leaves the rest of the dataset alone.
+
+    Returns (files_deleted, species_cleaned).
+    """
+    species = set()
+    for _, flac_path in annotation_pairs:
+        raw = get_species_from_path(flac_path, input_dir)
+        species.add(species_output_name(raw, profile) if profile is not None else raw)
+
+    # Species names come from the first path component below input_dir, so
+    # pointing input_dir at a species folder yields the quality grades instead
+    # and output lands in <output_dir>/<grade>/. Extraction has always behaved
+    # this way, but a clean that silently matches nothing is worth saying out
+    # loud, since the caller believes clips are being replaced.
+    grades = {s for s in species if s in {"A", "B", "C", "D", "E"}}
+    if grades:
+        print(f"  Warning: species resolved to quality grade(s) "
+              f"{sorted(grades)} -- input_dir looks like a single species "
+              f"folder.")
+        print(f"           Point input_dir at the tree root "
+              f"(e.g. .../per_species_flacs) so clips are grouped by species.")
+
+    deleted = 0
+    cleaned = []
+    for name in sorted(species):
+        d = Path(output_dir) / name
+        if not d.is_dir():
+            continue
+        clips = sorted(d.glob(f"*.{audio_format}"))
+        if not clips:
+            continue
+        cleaned.append((name, len(clips)))
+        if not dry_run:
+            for p in clips:
+                try:
+                    p.unlink()
+                    deleted += 1
+                except OSError as e:
+                    print(f"  Warning: could not delete {p}: {e}")
+        else:
+            deleted += len(clips)
+    return deleted, cleaned
+
+
 def process_annotation_file(annotation_path, flac_path, output_dir, input_dir,
                             target_sr=16000, audio_format='wav', no_upsample=False,
                             profile=None):
@@ -329,6 +386,15 @@ Examples:
              "contains only recordings originally captured at ≥44.1 kHz."
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing clips for the species in this run before "
+             "extracting, so output matches the current annotations exactly. "
+             "Use after editing annotations: segment onsets are encoded in the "
+             "filename, so a moved segment writes a new file and leaves the "
+             "old one behind. Only species found in the input tree are touched."
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be extracted without actually extracting."
@@ -387,6 +453,7 @@ Examples:
     print(f"  - No-upsample filter: {args.no_upsample}")
     print(f"  - Output format: {args.format}")
     print(f"  - Recursive search: {not args.no_recursive}")
+    print(f"  - Clean first: {args.clean}")
     print(f"  - Dry run: {args.dry_run}")
     print("="*80)
     print()
@@ -403,6 +470,20 @@ Examples:
     print()
 
     if args.dry_run:
+        if args.clean:
+            # Report the deletions too: --clean is the destructive part, so a
+            # dry run that stayed silent about it would be the least useful
+            # thing to preview.
+            _, cleaned = clean_species_outputs(
+                annotation_pairs, output_dir, input_dir, profile,
+                audio_format=args.format, dry_run=True,
+            )
+            print("[DRY RUN] Would first delete existing clips:")
+            for name, n in cleaned:
+                print(f"  {name}: {n} existing {args.format} file(s)")
+            if not cleaned:
+                print("  nothing to remove")
+            print()
         print("[DRY RUN] Would process the following files:")
         for txt_file, flac_file in annotation_pairs:
             segments = parse_annotation_file(txt_file)
@@ -412,6 +493,19 @@ Examples:
         print()
         print(f"Total segments that would be extracted: {sum(len(parse_annotation_file(t)) for t, _ in annotation_pairs)}")
         sys.exit(0)
+
+    if args.clean:
+        print("Cleaning existing clips for the species in this run...")
+        deleted, cleaned = clean_species_outputs(
+            annotation_pairs, output_dir, input_dir, profile,
+            audio_format=args.format,
+        )
+        for name, n in cleaned:
+            print(f"  {name}: removed {n} existing {args.format} file(s)")
+        if not cleaned:
+            print("  nothing to remove")
+        print(f"  {deleted} file(s) deleted across {len(cleaned)} species.")
+        print()
 
     # Process each annotation file
     total_stats = defaultdict(int)
