@@ -32,333 +32,18 @@ import sounddevice as sd
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
 
-# ── Configuration ─────────────────────────────────────────────────────────────
-FREQ_MIN               = 200      # Hz - minimum frequency for display / analysis
-DEFAULT_FREQ_CUTOFF    = 8000     # Hz — default max frequency for spectrogram display
-# Nyquist frequencies for standard MP3 sample rates (8, 11.025, 12, 16, 22.05, 24, 32, 44.1, 48 kHz)
-MP3_NYQUIST_VALUES     = [4000, 5512, 6000, 8000, 11025, 12000, 16000, 22050, 24000]
-
-# Sprengel (2016) §2.1 detection STFT: window 512, 75% overlap
-SPRENGEL_N_FFT         = 512
-SPRENGEL_HOP           = 128      # 75% overlap
-
-# Display STFT (larger window, better frequency resolution for the viewer)
-DISPLAY_N_FFT          = 2048
-DISPLAY_HOP            = DISPLAY_N_FFT // 4
-
-SEGMENT_DURATION       = 3.0      # seconds — fixed clip length
-MAX_SEGMENTS           = 10
-
-# Sprengel threshold multiplier (cells must exceed N × row_median AND N × col_median)
-INITIAL_THRESHOLD_MULT = 3.0      # lower = more sensitive
-
-# Handle config import gracefully
-try:
-    from config import PER_SPECIES_FLACS, PER_SPECIES_CSV, normalise_type, get_profile
-    DEFAULT_SOUND_DIR = str(PER_SPECIES_FLACS)
-except ImportError:
-    DEFAULT_SOUND_DIR = os.getcwd()
-    get_profile = None
-    def normalise_type(t):
-        return t.lower() if t else "birdsong"
-
-
-# ── XC metadata type lookup ──────────────────────────────────────────────────
-def _build_xc_type_map():
-    xc_map = {}
-    try:
-        csv_dir = PER_SPECIES_CSV
-        if csv_dir and csv_dir.exists():
-            for csv_file in csv_dir.glob("*.csv"):
-                try:
-                    df = pd.read_csv(csv_file, usecols=["id", "type"])
-                    for _, row in df.iterrows():
-                        try:
-                            xc_map[int(row["id"])] = normalise_type(str(row["type"]) if pd.notna(row["type"]) else "")
-                        except (ValueError, TypeError):
-                            pass
-                except Exception:
-                    pass
-    except NameError:
-        pass
-    return xc_map
-
-_XC_TYPE_MAP = _build_xc_type_map()
-
-def lookup_xc_type(audio_path):
-    stem = os.path.splitext(os.path.basename(audio_path))[0]
-    if stem.startswith("xc"):
-        try:
-            xc_id = int(stem[2:])
-            return _XC_TYPE_MAP.get(xc_id, "birdsong")
-        except ValueError:
-            pass
-    return "birdsong"
-
-
-# ── SNR Calculation ──────────────────────────────────────────────────────────
-def calculate_enhanced_snr(y, sr, segments, fade_buffer=0.1):
-    """Calculate SNR for detected segments"""
-    if not segments:
-        return {"average_snr": float('-inf'), "peak_snr": float('-inf'), "segment_snrs": []}
-    
-    segment_indices = []
-    fade_samples = int(fade_buffer * sr)
-    for start_time, end_time in segments:
-        start_idx = int(start_time * sr)
-        end_idx = min(int(end_time * sr), len(y))
-        if end_idx - start_idx <= 2 * fade_samples:
-            segment_indices.append((start_idx, end_idx))
-        else:
-            segment_indices.append((start_idx + fade_samples, end_idx - fade_samples))
-
-    signal_mask = np.zeros_like(y, dtype=bool)
-    for s, e in segment_indices:
-        if s < e: 
-            signal_mask[s:e] = True
-
-    noise_samples = y[~signal_mask]
-    if len(noise_samples) == 0:
-        return {"average_snr": float('inf'), "peak_snr": float('inf'), "segment_snrs": []}
-
-    noise_power = np.mean(noise_samples ** 2)
-    if noise_power == 0:
-        noise_power = 1e-10
-        
-    segment_powers, segment_snrs = [], []
-    for s, e in segment_indices:
-        if s >= e: 
-            continue
-        seg = y[s:e]
-        if len(seg) == 0: 
-            continue
-        p = np.mean(seg ** 2)
-        segment_powers.append(p)
-        segment_snrs.append(10 * np.log10((p + 1e-10) / (noise_power + 1e-10)))
-
-    if not segment_powers:
-        return {"average_snr": float('-inf'), "peak_snr": float('-inf'), "segment_snrs": []}
-
-    return {
-        "average_snr": 10 * np.log10((np.mean(segment_powers) + 1e-10) / (noise_power + 1e-10)),
-        "peak_snr": 10 * np.log10((max(segment_powers) + 1e-10) / (noise_power + 1e-10)),
-        "segment_snrs": segment_snrs,
-    }
-
-
-# ── Spectrogram computation ───────────────────────────────────────────────────
-def compute_spectrograms(y, sr):
-    """
-    Return two spectrograms:
-    - S_det:      Sprengel detection spectrogram (n_fft=512, hop=128, normalised to [0,1])
-    - S_db_full:  Display spectrogram, full bandwidth FREQ_MIN–fs/2 (n_fft=2048, log-power dB)
-    - freqs_full: Frequency axis for S_db_full (Hz)
-    """
-    # Detection spectrogram — Sprengel §2.1 parameters
-    S_det = np.abs(librosa.stft(y, n_fft=SPRENGEL_N_FFT, hop_length=SPRENGEL_HOP))
-    max_val = S_det.max()
-    if max_val > 0:
-        S_det /= max_val  # normalise to [0, 1] — do NOT log
-
-    # Display spectrogram — full bandwidth so the freq slider can pan freely
-    S_disp = np.abs(librosa.stft(y, n_fft=DISPLAY_N_FFT, hop_length=DISPLAY_HOP))
-    disp_freqs = librosa.fft_frequencies(sr=sr, n_fft=DISPLAY_N_FFT)
-    freq_mask = disp_freqs >= FREQ_MIN
-    S_db_full = librosa.power_to_db(S_disp[freq_mask, :] ** 2, ref=np.max)
-    freqs_full = disp_freqs[freq_mask]
-
-    return S_det, S_db_full, freqs_full
-
-
-# ── BLOB-BASED DETECTION — Sprengel (2016) §2.1 ──────────────────────────────
-def detect_sound_blobs(S_det, sr, threshold_mult=INITIAL_THRESHOLD_MULT,
-                       erode_cycles=1, dilate_cycles=1):
-    """
-    Sprengel et al. (2016) §2.1 signal/noise separation:
-
-    1. Each cell is 1 iff value > threshold_mult × row_median
-                           AND value > threshold_mult × col_median.
-    2. Binary erosion with 4×4 element (erode_cycles passes).
-    3. Binary dilation with 4×4 element (dilate_cycles passes).
-    4. Column indicator vector: col active if any row is 1.
-    5. Two smoothing binary dilation passes with 4×1 (time-only) element.
-    6. Extract contiguous active runs → (start_s, end_s) events.
-
-    Returns (events_with_bounds, binary_mask_2d) where events_with_bounds is
-    a list of (start_s, end_s, fmin_hz, fmax_hz).
-    binary_mask_2d has the same shape as S_det and is used for the blue overlay
-    (re-projected onto the display spectrogram time axis by the caller).
-    """
-    # 1. Row × column median threshold
-    row_med = np.median(S_det, axis=1, keepdims=True)  # shape (F, 1)
-    col_med = np.median(S_det, axis=0, keepdims=True)  # shape (1, T)
-    binary_mask = (S_det > threshold_mult * row_med) & (S_det > threshold_mult * col_med)
-
-    # 2–3. Morphological cleaning with 4×4 structuring element
-    struct_4x4 = np.ones((4, 4), dtype=bool)
-    for _ in range(erode_cycles):
-        binary_mask = binary_erosion(binary_mask, structure=struct_4x4)
-    for _ in range(dilate_cycles):
-        binary_mask = binary_dilation(binary_mask, structure=struct_4x4)
-
-    # 4. Column indicator vector
-    col_active = binary_mask.any(axis=0)  # shape (T,)
-
-    # 5. Two smoothing dilation passes with 4×1 (time-only) element
-    struct_4x1 = np.ones((4,), dtype=bool)
-    for _ in range(2):
-        col_active = binary_dilation(col_active, structure=struct_4x1)
-
-    # 6. Extract contiguous runs of active columns → time intervals
-    time_frames = S_det.shape[1]
-    time_axis = np.arange(time_frames) * SPRENGEL_HOP / sr
-
-    raw_events = []
-    in_run = False
-    run_start = 0
-    for t, active in enumerate(col_active):
-        if active and not in_run:
-            run_start = t
-            in_run = True
-        elif not active and in_run:
-            raw_events.append((time_axis[run_start], time_axis[t - 1]))
-            in_run = False
-    if in_run:
-        raw_events.append((time_axis[run_start], time_axis[min(time_frames - 1, time_frames - 1)]))
-
-    # Frequency bounds: use the 2-D binary mask rows for each event
-    events_with_bounds = []
-    det_freqs = librosa.fft_frequencies(sr=sr, n_fft=SPRENGEL_N_FFT)
-
-    for start, end in raw_events:
-        t0 = max(0, int(start * sr / SPRENGEL_HOP))
-        t1 = min(time_frames, int(end * sr / SPRENGEL_HOP) + 1)
-        if t0 >= t1:
-            events_with_bounds.append((start, end, FREQ_MIN, sr / 2))
-            continue
-
-        active_rows = binary_mask[:, t0:t1].any(axis=1)
-        active_freqs = det_freqs[active_rows]
-        if len(active_freqs) == 0:
-            events_with_bounds.append((start, end, FREQ_MIN, sr / 2))
-        else:
-            flo = max(float(active_freqs[0]), FREQ_MIN)
-            fhi = min(float(active_freqs[-1]), sr / 2)
-            pad = (fhi - flo) * 0.1
-            events_with_bounds.append((start, end,
-                                        max(FREQ_MIN, flo - pad),
-                                        min(sr / 2, fhi + pad)))
-
-    return events_with_bounds, binary_mask
-
-def compute_display_bounds(S_db_full, freqs_full, sr, start_s, end_s,
-                           drop_db=20):
-    """
-    Return (t_lo, t_hi, flo, fhi) tightly enclosing vocal energy in [start_s, end_s].
-    Uses the display spectrogram (n_fft=2048, ref=global max, so values are ≤ 0 dB).
-    Threshold = window_peak - drop_db (relative to the local window peak, not global).
-    Frequency: rows whose max across the window is within drop_db of the window peak.
-    Time:      columns whose max across frequency is within drop_db of the window peak.
-    """
-    total_frames = S_db_full.shape[1]
-    t0 = max(0, int(start_s * sr / DISPLAY_HOP))
-    t1 = min(total_frames, int(end_s * sr / DISPLAY_HOP) + 1)
-    if t0 >= t1:
-        return start_s, end_s, FREQ_MIN, float(freqs_full[-1])
-
-    window = S_db_full[:, t0:t1]           # shape (F, T_win)
-    win_peak = window.max()                 # local peak (≤ 0 dB)
-    thresh = win_peak - drop_db             # e.g. peak=-3 → thresh=-23
-
-    # Frequency bounds
-    freq_active = window.max(axis=1) >= thresh
-    freq_idx = np.where(freq_active)[0]
-    if len(freq_idx) == 0:
-        flo, fhi = FREQ_MIN, float(freqs_full[-1])
-    else:
-        flo = max(float(freqs_full[freq_idx[0]]), FREQ_MIN)
-        fhi = float(freqs_full[freq_idx[-1]])
-        pad = (fhi - flo) * 0.1
-        flo = max(FREQ_MIN, flo - pad)
-        fhi = min(float(freqs_full[-1]), fhi + pad)
-
-    # Time bounds
-    time_active = window.max(axis=0) >= thresh
-    col_idx = np.where(time_active)[0]
-    if len(col_idx) == 0:
-        t_lo, t_hi = start_s, end_s
-    else:
-        t_lo = (t0 + col_idx[0])  * DISPLAY_HOP / sr
-        t_hi = (t0 + col_idx[-1]) * DISPLAY_HOP / sr
-
-    return t_lo, t_hi, flo, fhi
-
-
-def compute_freq_bounds(S_db_full, freqs_full, sr, start_s, end_s, drop_db=20):
-    """Return (flo, fhi) only — used by create_fixed_segments for yellow box height."""
-    _, _, flo, fhi = compute_display_bounds(
-        S_db_full, freqs_full, sr, start_s, end_s, drop_db)
-    return flo, fhi
-
-
-def create_fixed_segments(events_with_bounds, audio_duration,
-                          S_db_full=None, freqs_full=None, sr=None):
-    """Create fixed 3s segments centered on detected events."""
-    half_seg = SEGMENT_DURATION / 2.0
-    fixed_segs = []
-    fixed_bounds = []
-
-    for start, end, fmin, fmax in events_with_bounds:
-        center = (start + end) / 2.0
-        bs = max(0, center - half_seg)
-        be = bs + SEGMENT_DURATION
-        if be > audio_duration:
-            be = audio_duration
-            bs = max(0, be - SEGMENT_DURATION)
-
-        if S_db_full is not None:
-            fmin, fmax = compute_freq_bounds(S_db_full, freqs_full, sr, bs, be)
-
-        fixed_segs.append((bs, be))
-        fixed_bounds.append((fmin, fmax))
-
-    # Deduplicate & enforce non-overlap
-    fixed_segs.sort(key=lambda x: x[0])
-    final_segments, final_bounds = [], []
-    last_end = -SEGMENT_DURATION
-
-    for i, (s, e) in enumerate(fixed_segs):
-        if s >= last_end and abs(e - s - SEGMENT_DURATION) < 0.01:
-            final_segments.append((s, e))
-            if i < len(fixed_bounds):
-                final_bounds.append(fixed_bounds[i])
-            last_end = e
-
-        if len(final_segments) >= MAX_SEGMENTS:
-            break
-
-    return final_segments, final_bounds
-
-
-# ── Annotation I/O ───────────────────────────────────────────────────────────
-def annotation_path_for(audio_path):
-    return os.path.splitext(audio_path)[0] + '.txt'
-
-def load_annotation(txt_path):
-    segments = []
-    try:
-        with open(txt_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'): 
-                    continue
-                parts = line.split('\t')
-                if len(parts) < 2: 
-                    continue
-                segments.append((float(parts[0]), float(parts[1])))
-    except Exception as e:
-        print(f"  Warning: could not read annotation {txt_path}: {e}")
-    return segments
+# ── Shared core ───────────────────────────────────────────────────────────────
+# Detection, SNR and annotation I/O live in stage4_core so that this annotator
+# and Stage4b_annotate_qt.py behave identically.
+from stage4_core import (
+    FREQ_MIN, DEFAULT_FREQ_CUTOFF, MP3_NYQUIST_VALUES,
+    SPRENGEL_N_FFT, SPRENGEL_HOP, DISPLAY_N_FFT, DISPLAY_HOP,
+    SEGMENT_DURATION, MAX_SEGMENTS, INITIAL_THRESHOLD_MULT,
+    DEFAULT_SOUND_DIR, get_profile, normalise_type,
+    lookup_xc_type, calculate_enhanced_snr, compute_spectrograms,
+    detect_sound_blobs, compute_display_bounds, compute_freq_bounds,
+    create_fixed_segments, annotation_path_for, load_annotation,
+)
 
 
 # ── Main Interactive Function ─────────────────────────────────────────────────
@@ -424,7 +109,7 @@ def interactive_segment_detector(audio_path):
 
     # Waveform plot
     ax_wave.plot(times_waveform, y, color='black', linewidth=0.5)
-    ax_wave.set_title('Waveform — drag a segment to reposition', fontsize=10)
+    ax_wave.set_title('Waveform — click/drag a segment to select & reposition it; Play plays only the selected (lightly highlighted) segment', fontsize=10)
     ax_wave.set_ylabel('Amplitude')
     ax_wave.set_xlim(0, audio_duration)
     ax_wave.set_xlabel('Time (s)')
@@ -484,12 +169,31 @@ def interactive_segment_detector(audio_path):
         ha='center', va='center', fontsize=9,
         bbox=dict(facecolor='white', alpha=0.7))
 
+    # Tracks whether current_segments reflects hand edits or a loaded .txt,
+    # so re-detection can warn before throwing that work away.
+    segments_dirty = {'edited': False, 'from_annotation': bool(has_annotation and title_suffix)}
+
     # ── Drawing Helpers ──────────────────────────────────────────────────────
     wave_segment_patches = []
     spec_segment_rects = []
+    spec_segment_labels = []
+    # segment index -> the spectrogram rects drawn for it, so a drag can move
+    # exactly those without assuming a fixed rects-per-segment stride.
+    spec_rects_by_segment = {}
+    spec_label_by_segment = {}
 
     def update_detection(val=None):
         nonlocal binary_mask, events_with_bounds
+
+        # Warn before discarding anything the user did by hand, or anything
+        # that came from an existing annotation file on disk.
+        if segments_dirty['from_annotation']:
+            print(f"  ⚠ Re-detection replaces {len(current_segments)} segment(s) loaded "
+                  f"from {os.path.basename(ann_path)} — press Quit (not Save) to keep "
+                  f"the file as it is on disk.")
+        elif segments_dirty['edited']:
+            print(f"  ⚠ Re-detection discards your manual edits "
+                  f"({len(current_segments)} segment(s) replaced).")
 
         print("  Re-running blob detection...")
         events_with_bounds, binary_mask = detect_sound_blobs(
@@ -504,48 +208,101 @@ def interactive_segment_detector(audio_path):
             S_db_full=S_db_full, freqs_full=freqs_full, sr=sr)
         current_segments[:] = new_segs
         current_bounds[:] = new_bnds
+        segments_dirty['edited'] = False
+        segments_dirty['from_annotation'] = False
         update_segments()
         print(f"  Found {len(new_segs)} segments")
 
     def update_segments():
         """Redraw segments on waveform and spectrogram"""
+        # Single enforcement point for the cap, so the on-screen count, the SNR
+        # figures and the saved .txt can never disagree about how many segments
+        # there are.
+        if len(current_segments) > MAX_SEGMENTS:
+            print(f"  Capping at {MAX_SEGMENTS} segments "
+                  f"(dropped {len(current_segments) - MAX_SEGMENTS})")
+            del current_segments[MAX_SEGMENTS:]
+            del current_bounds[MAX_SEGMENTS:]
+
         for p in wave_segment_patches:
             p.remove()
         for r in spec_segment_rects:
             r.remove()
+        for t in spec_segment_labels:
+            t.remove()
         wave_segment_patches.clear()
         spec_segment_rects.clear()
+        spec_segment_labels.clear()
+        spec_rects_by_segment.clear()
+        spec_label_by_segment.clear()
+
+        # Clamp selection to a valid index whenever the segment list changes
+        if not current_segments:
+            selected_idx['val'] = None
+        elif selected_idx['val'] is None or not (0 <= selected_idx['val'] < len(current_segments)):
+            selected_idx['val'] = 0
 
         # Draw final segments
         for i, (start, end) in enumerate(current_segments):
-            # Waveform highlight
-            span = ax_wave.axvspan(start, end, alpha=0.4, color='deepskyblue')
+            is_selected = (i == selected_idx['val'])
+
+            # Waveform highlight — selected segment gets a lighter, distinct tint
+            wave_color = 'lightgreen' if is_selected else 'deepskyblue'
+            wave_alpha = 0.55 if is_selected else 0.4
+            span = ax_wave.axvspan(start, end, alpha=wave_alpha, color=wave_color)
             span.segment_idx = i
             wave_segment_patches.append(span)
-            
+
             # Spectrogram frequency bounds
             if i < len(current_bounds):
                 fmin, fmax = current_bounds[i]
+                edge_color = 'lightgreen' if is_selected else 'yellow'
+                fill_alpha = 0.45 if is_selected else 0.3
                 # Fill
                 rect = patches.Rectangle((start, fmin), SEGMENT_DURATION, fmax - fmin,
-                                        linewidth=2, edgecolor='yellow', facecolor='yellow', 
-                                        alpha=0.3)
+                                        linewidth=2, edgecolor=edge_color, facecolor=edge_color,
+                                        alpha=fill_alpha)
                 ax_spec.add_patch(rect)
                 spec_segment_rects.append(rect)
                 # Outline
                 outline = patches.Rectangle((start, fmin), SEGMENT_DURATION, fmax - fmin,
-                                           linewidth=2, edgecolor='yellow', facecolor='none',
+                                           linewidth=2 if not is_selected else 3,
+                                           edgecolor=edge_color, facecolor='none',
                                            alpha=0.9)
                 ax_spec.add_patch(outline)
                 spec_segment_rects.append(outline)
+                spec_rects_by_segment[i] = (rect, outline)
+
+                # Segment number in the box's top-right corner
+                label = ax_spec.text(
+                    start + SEGMENT_DURATION, fmax, f"{i + 1}",
+                    ha='right', va='top', fontsize=7, fontweight='bold',
+                    color='black', clip_on=True,
+                    bbox=dict(boxstyle='square,pad=0.15', facecolor=edge_color,
+                              edgecolor='none', alpha=0.85))
+                spec_segment_labels.append(label)
+                spec_label_by_segment[i] = label
 
         snr = calculate_enhanced_snr(y, sr, current_segments)
+        sel_label = (f"Segment {selected_idx['val'] + 1}/{len(current_segments)}"
+                     if selected_idx['val'] is not None else "no segment")
         info_text.set_text(
             f"Avg SNR: {snr['average_snr']:.2f} dB | "
             f"Peak SNR: {snr['peak_snr']:.2f} dB | "
-            f"Segments: {len(current_segments)}"
+            f"Segments: {len(current_segments)} | "
+            f"Playing: {sel_label}"
         )
         fig.canvas.draw_idle()
+
+    # ── Segment selection (for playback) ─────────────────────────────────────
+    selected_idx = {'val': 0 if current_segments else None}
+
+    def select_segment(idx):
+        """Select segment idx for playback and refresh its highlight."""
+        if idx is None or not (0 <= idx < len(current_segments)):
+            idx = None
+        selected_idx['val'] = idx
+        update_segments()
 
     # Initial display
     update_segments()
@@ -560,33 +317,55 @@ def interactive_segment_detector(audio_path):
         return None
 
     def on_press(event):
-        if event.inaxes not in (ax_wave, ax_spec) or event.button != 1 or event.xdata is None: 
+        if event.inaxes not in (ax_wave, ax_spec) or event.button != 1 or event.xdata is None:
             return
         idx = _find_segment_at(event.xdata)
         if idx is not None:
             drag_state.update(idx=idx, start_x=event.xdata,
                               original_start=current_segments[idx][0], axis=event.inaxes)
+            if event.inaxes == ax_wave:
+                # Selecting via the waveform (click or start of a reposition drag)
+                # also makes this the segment Play will play.
+                select_segment(idx)
+
+    def _clamp_start(idx, new_start):
+        """Clamp a dragged segment's start time.
+
+        Neighbours bound the move, but a segment that is already flush against a
+        neighbour would otherwise have left_limit == right_limit and be frozen;
+        in that case fall back to the audio bounds so the drag can still move it
+        (overlap is resolved on the next detection/redraw rather than blocking
+        the interaction).
+        """
+        hard_lo = 0.0
+        hard_hi = max(0.0, audio_duration - SEGMENT_DURATION)
+
+        left_limit = current_segments[idx - 1][1] if idx > 0 else hard_lo
+        right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION
+                       if idx < len(current_segments) - 1 else hard_hi)
+
+        if right_limit <= left_limit:
+            left_limit, right_limit = hard_lo, hard_hi
+
+        return max(left_limit, min(new_start, right_limit))
 
     def on_motion(event):
         idx = drag_state['idx']
-        if idx is None or drag_state['axis'] != ax_wave or event.xdata is None: 
+        if idx is None or drag_state['axis'] != ax_wave or event.xdata is None:
             return
         dx = event.xdata - drag_state['start_x']
-        new_start = drag_state['original_start'] + dx
-        
-        left_limit = current_segments[idx - 1][1] if idx > 0 else 0.0
-        right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION
-                       if idx < len(current_segments) - 1 else audio_duration - SEGMENT_DURATION)
-        new_start = max(left_limit, min(new_start, right_limit))
-        
+        new_start = _clamp_start(idx, drag_state['original_start'] + dx)
+
         if idx < len(wave_segment_patches):
             wave_segment_patches[idx].set_x(new_start)
-            # Update corresponding spectrogram rectangles (2 per segment)
-            rect_idx = idx * 2
-            if rect_idx + 1 < len(spec_segment_rects):
-                spec_segment_rects[rect_idx].set_x(new_start)
-                spec_segment_rects[rect_idx + 1].set_x(new_start)
-        
+        # Move whichever spectrogram rects belong to this segment (may be none
+        # if the segment had no frequency bounds).
+        for rect in spec_rects_by_segment.get(idx, ()):
+            rect.set_x(new_start)
+        label = spec_label_by_segment.get(idx)
+        if label is not None:
+            label.set_x(new_start + SEGMENT_DURATION)
+
         fig.canvas.draw_idle()
 
     def on_release(event):
@@ -598,32 +377,47 @@ def interactive_segment_detector(audio_path):
                       if drag_state['axis'] == ax_wave and event.xdata is not None else 0.0)
         
         if total_move < 0.05 and drag_state['axis'] == ax_spec:
+            # Editing invalidates the coordinates playback was started with.
+            if is_playing:
+                stop_playback()
             print(f"Removing segment {idx}")
             del current_segments[idx]
-            del current_bounds[idx]
+            if idx < len(current_bounds):
+                del current_bounds[idx]
+            # Remap the playback selection around the removed index.
+            sel = selected_idx['val']
+            if sel is not None:
+                if not current_segments:
+                    selected_idx['val'] = None
+                elif sel == idx:
+                    selected_idx['val'] = min(idx, len(current_segments) - 1)
+                elif sel > idx:
+                    selected_idx['val'] = sel - 1
+            segments_dirty['edited'] = True
             update_segments()
         elif total_move >= 0.05 and drag_state['axis'] == ax_wave:
+            if is_playing:
+                stop_playback()
             dx = (event.xdata - drag_state['start_x'] if event.xdata is not None else 0.0)
-            new_start = drag_state['original_start'] + dx
-            left_limit = current_segments[idx - 1][1] if idx > 0 else 0.0
-            right_limit = (current_segments[idx + 1][0] - SEGMENT_DURATION
-                           if idx < len(current_segments) - 1 else audio_duration - SEGMENT_DURATION)
-            new_start = max(left_limit, min(new_start, right_limit))
+            new_start = _clamp_start(idx, drag_state['original_start'] + dx)
             current_segments[idx] = (new_start, new_start + SEGMENT_DURATION)
+            segments_dirty['edited'] = True
             print(f"Moved segment {idx} to {new_start:.3f}s")
             update_segments()
-            
+
         drag_state.update(idx=None, start_x=None, original_start=None, axis=None)
 
     fig.canvas.mpl_connect('button_press_event', on_press)
     fig.canvas.mpl_connect('motion_notify_event', on_motion)
     fig.canvas.mpl_connect('button_release_event', on_release)
 
-    # ── Playback ─────────────────────────────────────────────────────────────
+    # ── Playback — plays only the selected 3s segment, not the full file ────
     progress_line_spec = ax_spec.axvline(x=0, color='red', linewidth=2, visible=False)
     progress_line_wave = ax_wave.axvline(x=0, color='red', linewidth=2, visible=False)
     is_playing = False
     play_start_time = None
+    play_seg_start = 0.0
+    play_seg_end = 0.0
     progress_animation = None
 
     def stop_playback():
@@ -639,31 +433,47 @@ def interactive_segment_detector(audio_path):
         fig.canvas.draw_idle()
 
     def update_frame(frame):
-        if not is_playing: 
+        if not is_playing:
             return []
-        elapsed = time.time() - play_start_time
-        if elapsed >= audio_duration: 
+        elapsed_in_seg = time.time() - play_start_time
+        abs_t = play_seg_start + elapsed_in_seg
+        if abs_t >= play_seg_end:
             stop_playback()
             return []
-        progress_line_spec.set_xdata([elapsed, elapsed])
-        progress_line_wave.set_xdata([elapsed, elapsed])
+        progress_line_spec.set_xdata([abs_t, abs_t])
+        progress_line_wave.set_xdata([abs_t, abs_t])
         return [progress_line_spec, progress_line_wave]
 
     def toggle_play_stop(event):
-        nonlocal is_playing, play_start_time, progress_animation
+        nonlocal is_playing, play_start_time, progress_animation, play_seg_start, play_seg_end
         if is_playing:
             stop_playback()
-        else:
-            sd.play(y, sr)
-            play_start_time = time.time()
-            play_stop_button.label.set_text('Stop')
-            is_playing = True
-            progress_line_spec.set_visible(True)
-            progress_line_wave.set_visible(True)
-            progress_line_spec.set_xdata([0, 0])
-            progress_line_wave.set_xdata([0, 0])
-            progress_animation = FuncAnimation(fig, update_frame, interval=50, blit=True, cache_frame_data=False)
-            fig.canvas.draw_idle()
+            return
+
+        idx = selected_idx['val']
+        if idx is None or not (0 <= idx < len(current_segments)):
+            print("  No segment selected to play.")
+            return
+
+        seg_start, seg_end = current_segments[idx]
+        start_sample = max(0, int(seg_start * sr))
+        end_sample = min(len(y), int(seg_end * sr))
+        if end_sample <= start_sample:
+            print("  Selected segment is empty; nothing to play.")
+            return
+
+        sd.play(y[start_sample:end_sample], sr)
+        play_seg_start = seg_start
+        play_seg_end = seg_end
+        play_start_time = time.time()
+        play_stop_button.label.set_text('Stop')
+        is_playing = True
+        progress_line_spec.set_visible(True)
+        progress_line_wave.set_visible(True)
+        progress_line_spec.set_xdata([seg_start, seg_start])
+        progress_line_wave.set_xdata([seg_start, seg_start])
+        progress_animation = FuncAnimation(fig, update_frame, interval=50, blit=True, cache_frame_data=False)
+        fig.canvas.draw_idle()
 
     play_stop_button.on_clicked(toggle_play_stop)
 
@@ -688,7 +498,7 @@ def interactive_segment_detector(audio_path):
         xc_type = lookup_xc_type(audio_path)
         
         with open(txt, 'w') as f:
-            for start, end in current_segments[:MAX_SEGMENTS]:
+            for start, end in current_segments:
                 f.write(f"{start:.6f}\t{end:.6f}\t{xc_type}\n")
         
         print(f"\n✓ Saved {len(current_segments)} segment(s) to {txt}")
@@ -709,9 +519,10 @@ def interactive_segment_detector(audio_path):
     print("  • Erosion cycles:     Remove noise / shrink blobs (0=none, 4=aggressive)")
     print("  • Dilation cycles:    Reconnect / expand blobs   (0=none, 4=aggressive)")
     print("  • Max Freq Display:   Pan the spectrogram frequency axis")
-    print("  • Waveform:     drag a segment to reposition")
+    print("  • Waveform:     click or drag a segment to select it (reposition selector) and reposition it")
     print("  • Spectrogram:  click a yellow box to delete a segment")
-    print("  • Press 'Play' to listen to the recording")
+    print("  • Press 'Play' to listen to only the selected segment (lightly highlighted in green; default = segment 1)")
+    print(f"  • Note: moving a slider re-runs detection and replaces the current segments (max {MAX_SEGMENTS})")
     print("="*60 + "\n")
     
     plt.show()

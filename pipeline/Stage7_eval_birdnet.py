@@ -76,7 +76,7 @@ SPECIES_MAP = {
     "Common Tailorbird":        "Orthotomus sutorius_Common Tailorbird",
     "Coppersmith Barbet":       "Psilopogon haemacephalus_Coppersmith Barbet",
     "Large-tailed Nightjar":    "Caprimulgus macrurus_Large-tailed Nightjar",
-    "Olive-backed Sunbird":     "Cinnyris jugularis_Olive-backed Sunbird",
+    "Ornate Sunbird":           "Cinnyris jugularis_Olive-backed Sunbird",  # BirdNET v2.4 label predates the split
     "Pied Fantail":             "Rhipidura javanica_Malaysian Pied-Fantail",
     "Spotted Dove":             "Streptopelia chinensis_Spotted Dove",
     "White-breasted Waterhen":  "Amaurornis phoenicurus_White-breasted Waterhen",
@@ -143,12 +143,15 @@ def load_test_clips(splits_csv, audio_dir):
 
 def setup_birdnet():
     """Configure and load BirdNET model; return label list."""
-    _ckpt = os.path.join(BIRDNET_DIR, "checkpoints/V2.4")
+    # Newer BirdNET-Analyzer releases keep checkpoints inside the package dir.
+    _ckpt = next((d for d in (os.path.join(BIRDNET_DIR, "checkpoints/V2.4"),
+                              os.path.join(BIRDNET_DIR, "birdnet_analyzer/checkpoints/V2.4"))
+                  if os.path.isdir(d)), os.path.join(BIRDNET_DIR, "checkpoints/V2.4"))
     cfg.set_config({
         "MODEL_PATH":  os.path.join(_ckpt, "BirdNET_GLOBAL_6K_V2.4_Model_FP32.tflite"),
         "LABELS_FILE": os.path.join(_ckpt, "BirdNET_GLOBAL_6K_V2.4_Labels.txt"),
-        "SAMPLE_RATE": cfg.SAMPLE_RATE,   # 48000
-        "SIG_LENGTH":  cfg.SIG_LENGTH,    # 3.0
+        "SAMPLE_RATE": 48000,             # BirdNET V2.4 native rate
+        "SIG_LENGTH":  3.0,               # BirdNET V2.4 window
         "APPLY_SIGMOID":       True,
         "SIGMOID_SENSITIVITY": 1.0,
         "SIG_OVERLAP": 0.0,
@@ -223,12 +226,20 @@ def main():
         pred_species = species_names[pred_idx]
         max_conf = float(class_scores[pred_idx])
 
+        # Unrestricted top-1 over all BirdNET classes (R1-1b): reported
+        # alongside, does not affect the 12-class restricted metrics.
+        top_idx = int(np.argmax(scores))
+
         rows.append({
             "filepath":   clip["filepath"],
             "ground_truth": clip["species"],
             "predicted":  pred_species,
             "correct":    int(pred_species == clip["species"]),
             "max_conf":   max_conf,
+            "unrestricted_top1":      labels[top_idx],
+            "unrestricted_top1_conf": float(scores[top_idx]),
+            "top1_in_target_set":     int(top_idx in class_indices),
+            "top1_matches_truth":     int(labels[top_idx] == SPECIES_MAP[clip["species"]]),
             **{f"score_{s.replace(' ', '_')}": float(class_scores[i])
                for i, s in enumerate(species_names)},
         })
@@ -282,6 +293,13 @@ def main():
         "accuracy":         round(accuracy, 6),
         "macro_auc":        round(macro_auc, 6),
         "per_class_auc":    {r["species"]: round(r["auc"], 4) for r in auc_rows},
+        "unrestricted_top1_accuracy": round(float(df["top1_matches_truth"].mean()), 6),
+        "unrestricted_out_of_set_rate": round(float(1 - df["top1_in_target_set"].mean()), 6),
+        "per_class_unrestricted": {
+            sp: {"top1_accuracy": round(float(g["top1_matches_truth"].mean()), 4),
+                 "out_of_set_rate": round(float(1 - g["top1_in_target_set"].mean()), 4)}
+            for sp, g in df.groupby("ground_truth")
+        },
     }
     with open(out / "results.json", "w") as f:
         json.dump(summary, f, indent=2)

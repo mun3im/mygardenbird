@@ -14,12 +14,27 @@ from config import (
     resolve_species_dir,
 )
 
+from xc_download import (
+    MIN_DURATION_S, mp3_to_mono_flac, probe_audio, resolve_api_key,
+)
+
 # Stage 1 already applies regional filtering (lon 60-140 OR ASEAN) and duration filtering (>=3s)
 # Stage 2 just downloads what's in the CSV
-MIN_DURATION_S = 3.0   # Still used in _mp3_to_mono_flac for safety check
 
 
-def get_xc_ids_from_csv(common_name, quality, per_species_csv_dir=PER_SPECIES_CSV):
+def _is_nd_license(lic) -> bool:
+    """True if an XC `lic` URL denotes a No-Derivatives Creative Commons licence.
+
+    Covers both the `-nd` licence-code form (e.g. .../licenses/by-nc-nd/4.0/)
+    and a bare `/nd/` segment, case-insensitively.
+    """
+    if not isinstance(lic, str):
+        return False
+    lic = lic.lower()
+    return "-nd" in lic or "/nd/" in lic
+
+
+def get_xc_ids_from_csv(common_name, quality, per_species_csv_dir=PER_SPECIES_CSV, skip_nd=True):
     """Load XC IDs from Stage1 CSV for given species and quality.
 
     Stage 1 CSVs now contain ONLY regional-filtered records (lon 60-140 OR ASEAN, >=3s).
@@ -29,6 +44,11 @@ def get_xc_ids_from_csv(common_name, quality, per_species_csv_dir=PER_SPECIES_CS
     `per_species_csv_dir` defaults to MyGardenBird's PER_SPECIES_CSV for
     backward compatibility; pass a different profile's per_species_csv to
     look elsewhere (None if that dataset has no such directory).
+
+    When `skip_nd` is True (default), recordings with a No-Derivatives
+    licence are excluded here so Stage 2 never downloads them in the first
+    place -- avoids the recurring manual cleanup of ND flac+txt pairs after
+    the fact. Returns (xc_ids, nd_skipped_count).
     """
     safe = common_name.replace(" ", "_").replace("/", "-").replace(":", "-")
     csv_path = os.path.join(per_species_csv_dir, f"{safe}.csv")
@@ -36,26 +56,32 @@ def get_xc_ids_from_csv(common_name, quality, per_species_csv_dir=PER_SPECIES_CS
     if not os.path.isfile(csv_path):
         print(f"    WARNING: No Stage1 metadata found at {csv_path}")
         print(f"    Run Stage1 first to generate regional metadata.")
-        return None
+        return None, 0
 
     try:
         df = pd.read_csv(csv_path, low_memory=False)
     except (pd.errors.EmptyDataError, FileNotFoundError):
         print(f"    WARNING: Empty or missing CSV: {csv_path}")
-        return None
+        return None, 0
 
     # CSV already contains regional-filtered records
     # Only filter by quality if specified
     if "q" in df.columns and quality:
         df = df[df["q"] == quality]
 
+    nd_skipped = 0
+    if skip_nd and "lic" in df.columns:
+        is_nd = df["lic"].apply(_is_nd_license)
+        nd_skipped = int(is_nd.sum())
+        df = df[~is_nd]
+
     # Extract XC IDs
     if "id" not in df.columns:
         print(f"    WARNING: No 'id' column in {csv_path}")
-        return set()
+        return set(), nd_skipped
 
     xc_ids = set(str(xid) for xid in df["id"].dropna())
-    return xc_ids
+    return xc_ids, nd_skipped
 
 
 def get_recordings(scientific_name, quality, page=1, api_key=None):
@@ -72,76 +98,6 @@ def get_recordings(scientific_name, quality, page=1, api_key=None):
     resp.raise_for_status()
     js = resp.json()
     return js["recordings"], js["numPages"] > page
-
-
-def _probe_audio(path):
-    """Return (sample_rate, duration_s) of an audio file via ffprobe.
-
-    Either value is None if it cannot be determined.
-    """
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe", "-v", "error",
-                "-select_streams", "a:0",
-                "-show_entries", "stream=sample_rate,duration",
-                "-of", "csv=p=0",
-                path,
-            ],
-            capture_output=True, text=True, timeout=15,
-        )
-        parts = result.stdout.strip().split(",")
-        sr  = int(parts[0])   if len(parts) > 0 and parts[0] else None
-        dur = float(parts[1]) if len(parts) > 1 and parts[1] else None
-        return sr, dur
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, IndexError):
-        return None, None
-
-
-def _mp3_to_mono_flac(mp3_path, flac_path):
-    """Convert an MP3 file to mono FLAC using ffmpeg.
-
-    Pre-conversion:  recordings shorter than MIN_DURATION_S are skipped.
-    Post-conversion: asserts the output FLAC preserves the original sample rate.
-                     Resampling is intentionally deferred to Stage 6.
-
-    Returns True if the file was converted and passes all checks.
-    Returns False (and deletes any partial output) otherwise.
-    """
-    src_sr, src_dur = _probe_audio(mp3_path)
-
-    # Skip recordings that are too short
-    if src_dur is not None and src_dur < MIN_DURATION_S:
-        print(f"  Skipping XC{os.path.basename(mp3_path)}: {src_dur:.2f}s < {MIN_DURATION_S}s")
-        return False
-
-    try:
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", mp3_path,
-                "-ac", "1",      # mono — channel change only, no -ar flag
-                "-c:a", "flac",
-                flac_path,
-            ],
-            capture_output=True, timeout=120,
-        )
-        if not (os.path.isfile(flac_path) and os.path.getsize(flac_path) > 0):
-            return False
-
-        # Assert sample rate was preserved
-        dst_sr, _ = _probe_audio(flac_path)
-        if src_sr is not None and dst_sr is not None and src_sr != dst_sr:
-            print(f"  ERROR: sample rate changed {src_sr} Hz -> {dst_sr} Hz in {flac_path}")
-            print(f"  Deleting corrupted output.")
-            os.unlink(flac_path)
-            return False
-
-        return True
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"  ffmpeg error: {e}")
-        return False
-
-
 def download_recording(xc_id, save_folder):
     """Download a single recording by XC ID, convert to mono FLAC in save_folder."""
     flac_filename = os.path.join(save_folder, f"xc{xc_id}.flac")
@@ -162,7 +118,7 @@ def download_recording(xc_id, save_folder):
                 if chunk:
                     tmp.write(chunk)
 
-        if _mp3_to_mono_flac(tmp_path, flac_filename):
+        if mp3_to_mono_flac(tmp_path, flac_filename):
             print(f"  Saved: {flac_filename}")
             return True
         else:
@@ -178,7 +134,7 @@ def download_recording(xc_id, save_folder):
 
 def download_species(scientific_name, english_name, ebird_code, qualities, output_dir, dry_run,
                       api_key=None, per_species_csv_dir=PER_SPECIES_CSV,
-                      folder_style="space", species_overrides=None):
+                      folder_style="space", species_overrides=None, skip_nd=True):
     """Download recordings for one species across the given quality levels.
 
     Reads XC IDs from Stage 1 CSVs (already filtered for regional + duration criteria).
@@ -189,6 +145,9 @@ def download_species(scientific_name, english_name, ebird_code, qualities, outpu
     MyGardenBird) or "underscore" (matches SEA-BIRD30's flacs/ convention),
     with explicit per-species overrides (e.g. "Pied Fantail" ->
     "Malaysian_Pied_Fantail") checked first either way.
+
+    `skip_nd` (default True) excludes No-Derivatives-licensed recordings
+    before downloading; set False to download everything in the Stage1 CSV.
     """
     overrides = species_overrides or {}
     if folder_style == "underscore":
@@ -196,15 +155,20 @@ def download_species(scientific_name, english_name, ebird_code, qualities, outpu
     else:
         species_folder = overrides.get(english_name, folder_name(english_name))
     counts = {}
+    nd_skipped_total = 0
     for quality in qualities:
         save_folder = os.path.join(output_dir, species_folder, quality)
 
         # Load XC IDs from Stage1 metadata (already regional-filtered)
-        xc_ids = get_xc_ids_from_csv(english_name, quality, per_species_csv_dir)
+        xc_ids, nd_skipped = get_xc_ids_from_csv(english_name, quality, per_species_csv_dir, skip_nd=skip_nd)
+        nd_skipped_total += nd_skipped
         if xc_ids is None:
             print(f"    Skipping quality {quality}: no Stage1 metadata available")
             counts[quality] = 0
             continue
+
+        if nd_skipped:
+            print(f"  Quality {quality}: skipping {nd_skipped} ND-licensed recording(s)")
 
         if not xc_ids:
             print(f"  Quality {quality}: 0 recordings to download")
@@ -247,8 +211,9 @@ def download_species(scientific_name, english_name, ebird_code, qualities, outpu
     total = sum(counts.values())
     breakdown = ", ".join(f"{c} {q}" for q, c in counts.items() if c > 0)
     action = "Found" if dry_run else "Downloaded"
-    print(f"  {action} {total} files for {english_name} ({breakdown})")
-    return counts
+    nd_note = f", skipped {nd_skipped_total} ND-licensed" if nd_skipped_total else ""
+    print(f"  {action} {total} files for {english_name} ({breakdown}{nd_note})")
+    return counts, nd_skipped_total
 
 
 def list_species(active_species=ACTIVE_SPECIES):
@@ -305,6 +270,19 @@ def main():
         default=None,
         help="Xeno-Canto API key (optional for API v3, but recommended). Will auto-load from xc_key.txt if present.",
     )
+    parser.add_argument(
+        "--skip-nd",
+        dest="skip_nd",
+        action="store_true",
+        default=True,
+        help="Skip No-Derivatives (CC ...-ND) licensed recordings (default: on).",
+    )
+    parser.add_argument(
+        "--no-skip-nd",
+        dest="skip_nd",
+        action="store_false",
+        help="Download ND-licensed recordings too (disables the default ND filter).",
+    )
     args = parser.parse_args()
 
     # Resolve dataset profile, then defer path/species-list defaults until
@@ -323,15 +301,8 @@ def main():
         list_species(active_catalogue)
         sys.exit(0)
 
-    # Auto-load API key from xc_key.txt if not provided via command line
-    api_key = args.api_key
-    if not api_key:
-        key_file = os.path.join(os.path.dirname(__file__), "xc_key.txt")
-        if os.path.exists(key_file):
-            with open(key_file, "r") as f:
-                api_key = f.read().strip()
-            if api_key:
-                print(f"Loaded API key from {key_file}\n")
+    api_key = resolve_api_key(args.api_key,
+                              script_dir=os.path.dirname(__file__))
 
     # Resolve species list
     if len(args.species) == 1 and args.species[0].lower() == "all":
@@ -371,6 +342,8 @@ def main():
     print("  - Reads pre-filtered XC IDs from Stage 1 CSVs (already regional + >=3s)")
     print("  - Converts MP3 to mono FLAC (preserving original sample rate)")
     print("  - NO filtering needed - Stage 1 already did regional/duration filtering")
+    nd_status = "skipped" if args.skip_nd else "downloaded (not filtered)"
+    print(f"  - No-Derivatives (ND) licensed recordings are {nd_status}")
     print()
     print("NOTE:")
     print("  - Only downloads species with active=yes in target_species.csv")
@@ -405,19 +378,23 @@ def main():
         print("[DRY RUN] No files will be downloaded.\n")
 
     grand_total = 0
+    grand_nd_skipped = 0
     for idx, (english, scientific, code) in enumerate(species_list, 1):
         print(f"[{idx}/{len(species_list)}] Downloading {english} ({scientific})...")
-        counts = download_species(
+        counts, nd_skipped = download_species(
             scientific, english, code, qualities, output_dir, args.dry_run, api_key,
             per_species_csv_dir=profile.per_species_csv,
             folder_style=profile.folder_styles.get("per_species_flacs", "space"),
             species_overrides=profile.species_overrides,
+            skip_nd=args.skip_nd,
         )
         grand_total += sum(counts.values())
+        grand_nd_skipped += nd_skipped
         print()
 
     action = "found" if args.dry_run else "downloaded"
-    print(f"[DONE] Total {action}: {grand_total} files across {len(species_list)} species.")
+    nd_summary = f" ({grand_nd_skipped} ND-licensed recordings skipped)" if grand_nd_skipped else ""
+    print(f"[DONE] Total {action}: {grand_total} files across {len(species_list)} species.{nd_summary}")
 
 
 if __name__ == "__main__":
