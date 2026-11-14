@@ -208,7 +208,8 @@ def optimize_split_mip(structure: Dict[str, Dict[str, List[str]]],
                        val_ratio: float = TARGET_VAL_RATIO,
                        test_ratio: float = TARGET_TEST_RATIO,
                        time_limit: int = MIP_TIME_LIMIT,
-                       verbose: bool = True) -> Tuple[Dict, Dict, float]:
+                       verbose: bool = True,
+                       link_shared_keys: bool = False) -> Tuple[Dict, Dict, float]:
     """
     Use Mixed Integer Programming to find optimal dataset split.
 
@@ -219,6 +220,11 @@ def optimize_split_mip(structure: Dict[str, Dict[str, List[str]]],
         test_ratio: Target ratio for test set
         time_limit: Maximum solving time in seconds
         verbose: Print progress messages
+        link_shared_keys: Force a key appearing in several classes into the
+            same split in all of them. Needed with site grouping, where one
+            site legitimately appears under every species recorded there;
+            without it the split is site-clean within each class but not
+            across them. Inert for source_id keys, which are class-unique.
 
     Returns:
         (assignment, stats, objective_value)
@@ -303,6 +309,36 @@ def optimize_split_mip(structure: Dict[str, Dict[str, List[str]]],
                 x[class_name][source]['test'] == 1,
                 f"one_split_{class_name}_{source}"
             )
+
+    # CONSTRAINT 1b: a key in several classes gets ONE assignment dataset-wide
+    #
+    # The decision variable is x[class][key][split], so without this a site
+    # shared by five species is five independent units and the solver may send
+    # it to train for one class and test for another. Site grouping then closes
+    # leakage within each class but not across them -- precisely the 76
+    # cross-species leaks measured on 2026-11-09.
+    #
+    # Equating the duplicates makes a site atomic across the whole dataset.
+    # Only shared keys are touched, and source_ids are class-unique, so this
+    # is inert unless --group-by-site is on.
+    if link_shared_keys:
+        key_classes = defaultdict(list)
+        for class_name, sources in structure.items():
+            for key in sources:
+                key_classes[key].append(class_name)
+
+        shared = {k: cs for k, cs in key_classes.items() if len(cs) > 1}
+        for idx, (key, classes) in enumerate(sorted(shared.items())):
+            first = classes[0]
+            for jdx, other in enumerate(classes[1:]):
+                for split in ('train', 'val', 'test'):
+                    prob += (
+                        x[first][key][split] == x[other][key][split],
+                        f"link_{idx}_{jdx}_{split}"
+                    )
+        if verbose and shared:
+            print(f"🔒 Linking {len(shared)} keys shared across classes so "
+                  f"each lands in one split dataset-wide")
 
     # CONSTRAINT 2: Match target sample counts (with slack)
     for class_name, sources in structure.items():
@@ -836,7 +872,9 @@ Examples:
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
         time_limit=args.time_limit,
-        verbose=verbose
+        verbose=verbose,
+        # Site keys are shared between classes; source_ids are not.
+        link_shared_keys=args.group_by_site
     )
 
     # Print statistics

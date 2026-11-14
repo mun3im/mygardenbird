@@ -10,7 +10,8 @@ For each 3-second clip:
   - Load audio at 48 kHz (BirdNET native rate)
   - Run model.predict() → shape (1, 6521)
   - Apply flat_sigmoid
-  - Restrict scores to the 12 MyGardenBird classes
+  - Restrict scores to the 15 MyGardenBird classes (reported alongside
+    the UNRESTRICTED argmax over all 6,522 labels, per reviewer R1-1b)
   - argmax → predicted species
   - Compare to ground truth
 
@@ -82,6 +83,13 @@ SPECIES_MAP = {
     "White-breasted Waterhen":  "Amaurornis phoenicurus_White-breasted Waterhen",
     "White-throated Kingfisher":"Halcyon smyrnensis_White-throated Kingfisher",
     "Yellow-vented Bulbul":     "Pycnonotus goiavier_Yellow-vented Bulbul",
+    # Promoted to core classes 2026-11-12/13. Until these three were added,
+    # load_test_clips() silently skipped their directories (it drops any
+    # species not in this map), so they were absent from the evaluation
+    # rather than scored badly.
+    "Common Myna":              "Acridotheres tristis_Common Myna",
+    "Zebra Dove":               "Geopelia striata_Zebra Dove",
+    "Scarlet-backed Flowerpecker": "Dicaeum cruentatum_Scarlet-backed Flowerpecker",
 }
 
 

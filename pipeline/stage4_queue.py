@@ -66,15 +66,19 @@ def status_for(audio_path):
         return Status.TO_EVALUATE
 
 
-def segment_count(audio_path):
-    """Number of saved segments, or 0 for rejected/unevaluated files."""
-    txt = annotation_path_for(audio_path)
+def segment_count_from_txt(txt_path):
+    """Segment lines in a sidecar, addressed by its own path."""
     try:
-        with open(txt) as f:
+        with open(txt_path) as f:
             return sum(1 for line in f
                        if line.strip() and not line.startswith("#"))
     except OSError:
         return 0
+
+
+def segment_count(audio_path):
+    """Number of saved segments, or 0 for rejected/unevaluated files."""
+    return segment_count_from_txt(annotation_path_for(audio_path))
 
 
 class QueueEntry:
@@ -143,15 +147,87 @@ def summarise(entries):
     return counts
 
 
-def format_summary(entries):
-    """One-line progress summary for a status bar."""
+def total_segments(entries):
+    """Clips the queue currently accounts for, summed over its sidecars.
+
+    Scoped to the queue, so it covers only the folder that was opened. For
+    the figure that matters while annotating -- the whole species, however
+    its grade folders are split -- use species_segments.
+    """
+    return sum(e.n_segments for e in entries)
+
+
+# Quality-grade subfolder names. A species directory is split into these, so
+# the species total is the sum over all of them and a queue opened on one
+# grade sees only a fraction of it.
+GRADE_DIRS = ("A", "B", "C", "D", "E")
+
+
+def species_root(folder):
+    """The species directory for `folder`, which may be a grade subfolder.
+
+    Opening '<species>/B' should still report the species total, so a
+    single-letter grade leaf resolves to its parent.
+    """
+    folder = os.path.normpath(folder)
+    if os.path.basename(folder) in GRADE_DIRS:
+        return os.path.dirname(folder)
+    return folder
+
+
+def species_segments(folder):
+    """Total clips across every grade folder of `folder`'s species.
+
+    Counted from the sidecars on disk rather than from a queue: the queue
+    holds only the opened folder, while this is the per-class figure being
+    worked towards. Cheap enough to call on every save -- it reads the .txt
+    files, never the audio.
+    """
+    root = species_root(folder)
+    total = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            # Only live sidecars. Curation keeps originals as '<name>.txt.bak'
+            # (and dated variants), which hold the dropped segments -- counting
+            # those would report clips that no longer exist.
+            if fn.endswith(".txt") and ".txt." not in fn:
+                total += segment_count_from_txt(os.path.join(dirpath, fn))
+    return total
+
+
+def format_clip_total(clips, target=None):
+    """The running clip total on its own line, with distance from `target`.
+
+    Takes the count rather than a queue: the figure being worked towards is
+    the species total across every grade folder (species_segments), not what
+    the opened folder happens to hold.
+    """
+    line = f"🎬 {clips} clip(s)"
+    if target:
+        short = target - clips
+        line += (f" / {target}  ({short} to go)" if short > 0
+                 else f" / {target}  (+{-short} over)" if short < 0
+                 else f" / {target}  (met)")
+    return line
+
+
+def format_summary(entries, target=None, folder=None):
+    """One-line progress summary for a status bar.
+
+    With `target` and `folder`, appends the species clip total so a
+    single-line caller (the status bar) shows it too; the stacked panel
+    passes neither and uses format_clip_total for its own line instead.
+    """
     c = summarise(entries)
     total = len(entries)
     done = c[Status.ACCEPTED] + c[Status.REJECTED]
-    return (f"{done}/{total} done  "
+    line = (f"{done}/{total} done  "
             f"{Status.ACCEPTED.emoji} {c[Status.ACCEPTED]}  "
             f"{Status.REJECTED.emoji} {c[Status.REJECTED]}  "
             f"{Status.TO_EVALUATE.emoji} {c[Status.TO_EVALUATE]}")
+    if target and folder:
+        line += f"  {format_clip_total(species_segments(folder), target)}"
+    return line
 
 
 def next_unevaluated(entries, from_index):

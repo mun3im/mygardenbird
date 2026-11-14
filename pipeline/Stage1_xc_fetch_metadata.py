@@ -3,7 +3,8 @@
 Stage 1: Fetch Xeno-Canto metadata for all target species and rank by
 regional data availability.
 
-Regional definition: 60 < longitude < 140 OR ASEAN countries (for missing longitude).
+Regional definition: 60 < longitude < 140 AND latitude > -11, OR ASEAN countries
+(for missing coordinates). The latitude bound excludes northern Australia.
 
 Uses the XC v3 API (API key required).
 Reuses fetch logic from xc_get_metadata_all_seabirds_histo.py.
@@ -31,9 +32,19 @@ RATE_LIMIT_DELAY = 0.15  # seconds between requests
 MAX_RETRIES = 4
 REQUEST_TIMEOUT = 30  # seconds
 
-# Regional filtering: 60 < longitude < 140 OR ASEAN countries (for missing lon)
+# Regional filtering: 60 < longitude < 140 AND latitude > -11,
+# OR ASEAN countries (for missing coordinates)
 LONGITUDE_MIN = 60.0
 LONGITUDE_MAX = 140.0
+
+# Southern cut-off. The longitude window alone admits northern Australia, which
+# lies across Wallace's Line and so belongs to the Australasian rather than the
+# Indomalayan fauna. -11 sits in an empty band: the northernmost Australian
+# recording in this corpus is at -12.38 and the southernmost non-Australian one
+# (Indonesia) at -10.59, so any threshold between -11 and -12 separates them
+# without touching the archipelago. Stated as a biogeographic boundary rather
+# than a country exclusion, so it keeps working for countries not yet sampled.
+LATITUDE_MIN = -11.0
 
 ASEAN_COUNTRIES = [
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia",
@@ -150,12 +161,14 @@ def _save_records_csv(
     output_dir: str,
     lon_min: float = LONGITUDE_MIN,
     lon_max: float = LONGITUDE_MAX,
+    lat_min: float = LATITUDE_MIN,
     no_region_filter: bool = False,
     min_duration: float = 3.0,
 ) -> str:
     """Save REGIONAL-FILTERED records to CSV.
 
-    Applies regional filtering (lon_min–lon_max OR ASEAN) + duration >=min_duration
+    Applies regional filtering (lon_min–lon_max, latitude > lat_min, OR ASEAN)
+    + duration >=min_duration
     before saving.  Pass no_region_filter=True to skip the geographic filter entirely.
     This eliminates duplicate filtering in Stage 2.
 
@@ -198,15 +211,24 @@ def _save_records_csv(
         if "file" in df.columns:
             df = df[df["file"].notna() & (df["file"].astype(str).str.strip() != "")]
 
-        # Regional subset: lon_min < longitude < lon_max OR ASEAN countries (for missing lon)
+        # Regional subset: inside the lon/lat box, OR an ASEAN country when
+        # coordinates are missing.
         if no_region_filter:
             pass  # keep all records regardless of geography
         else:
             # XC API v3 names the field "lon"; v2 used "lng".
             df["_lon"] = pd.to_numeric(df.get("lon", df.get("lng")), errors="coerce")
+            df["_lat"] = pd.to_numeric(df.get("lat"), errors="coerce")
 
-            # Condition 1: Valid longitude in range [lon_min, lon_max]
+            # Condition 1: inside the box. The latitude test excludes northern
+            # Australia, which the longitude window alone would admit. A row
+            # with a longitude but no latitude cannot be placed north or south
+            # of the cut-off, so it is kept here and left to the country
+            # fallback below -- dropping it would discard valid Asian material
+            # for a missing field.
             lon_mask = df["_lon"].notna() & (df["_lon"] > lon_min) & (df["_lon"] < lon_max)
+            lat_ok = df["_lat"].isna() | (df["_lat"] > lat_min)
+            box_mask = lon_mask & lat_ok
 
             # Condition 2: Missing longitude AND country in ASEAN list
             missing_lon_mask = df["_lon"].isna()
@@ -216,9 +238,9 @@ def _save_records_csv(
             else:
                 fallback_mask = pd.Series([False] * len(df), index=df.index)
 
-            # Combine: longitude range OR (missing lon AND ASEAN country)
-            df = df[lon_mask | fallback_mask].copy()
-            df.drop(columns=["_lon"], inplace=True)
+            # Combine: inside the box OR (missing lon AND ASEAN country)
+            df = df[box_mask | fallback_mask].copy()
+            df.drop(columns=["_lon", "_lat"], inplace=True)
 
         # Filter by minimum duration
         if "length_seconds" in df.columns:
@@ -242,6 +264,7 @@ def fetch_metadata(
     dry_run: bool,
     lon_min: float = LONGITUDE_MIN,
     lon_max: float = LONGITUDE_MAX,
+    lat_min: float = LATITUDE_MIN,
     no_region_filter: bool = False,
     min_duration: float = 3.0,
 ):
@@ -301,7 +324,7 @@ def fetch_metadata(
         # Save regional-filtered CSV
         _save_records_csv(
             records, common, output_dir,
-            lon_min=lon_min, lon_max=lon_max,
+            lon_min=lon_min, lon_max=lon_max, lat_min=lat_min,
             no_region_filter=no_region_filter,
             min_duration=min_duration,
         )
@@ -461,10 +484,11 @@ def rank_from_csvs(output_dir: str, species_list=None):
     # ── save ranking Markdown ────────────────────────────────────────────
     md_path = os.path.join(project_csv_dir, "regional_ranking.md")
     md_lines = [
-        "# Regional Ranking — Longitude 60-140° OR ASEAN Countries",
+        "# Regional Ranking — Longitude 60-140°, Latitude > -11° OR ASEAN Countries",
         "",
         "Ranked by total downloadable hours (files >= 3s, non-null download URL).",
-        "Regional filter: 60 < longitude < 140 OR ASEAN countries (for missing longitude).",
+        "Regional filter: 60 < longitude < 140 AND latitude > -11 OR ASEAN countries "
+        "(for missing coordinates).",
         "",
         "| Rank | Species | Scientific name | Code | Reg Hours | Reg Files | Global Hours | Global Files | A | B | C | D | E |",
         "|-----:|---------|-----------------|------|----------:|----------:|-------------:|-------------:|--:|--:|--:|--:|--:|",
@@ -526,6 +550,12 @@ def main():
         help=f"Maximum longitude for regional filter (default: {LONGITUDE_MAX}).",
     )
     parser.add_argument(
+        "--lat-min", type=float, default=LATITUDE_MIN,
+        help=f"Minimum latitude for regional filter (default: {LATITUDE_MIN}). "
+             f"Excludes northern Australia, which the longitude window alone "
+             f"admits despite lying across Wallace's Line.",
+    )
+    parser.add_argument(
         "--no-region-filter", action="store_true",
         help="Disable geographic filtering entirely (keep all recordings worldwide).",
     )
@@ -584,7 +614,8 @@ def main():
     if args.no_region_filter:
         print("  - Geographic filter: DISABLED (all worldwide recordings kept)")
     else:
-        print(f"  - Filters recordings by region (longitude {args.lon_min}–{args.lon_max}° OR ASEAN countries)")
+        print(f"  - Filters recordings by region (longitude {args.lon_min}–{args.lon_max}°, "
+              f"latitude > {args.lat_min}° OR ASEAN countries)")
     print(f"  - Filters by duration (≥{args.min_duration}s) and downloadability")
     print("  - Saves ONLY regional-filtered records to per-species CSV files")
     print("  - Saves global stats (before filtering) to global_stats.json")
@@ -623,6 +654,7 @@ def main():
         fetch_metadata(
             species_list, output_dir, api_key, args.dry_run,
             lon_min=args.lon_min,
+            lat_min=args.lat_min,
             lon_max=args.lon_max,
             no_region_filter=args.no_region_filter,
             min_duration=args.min_duration,

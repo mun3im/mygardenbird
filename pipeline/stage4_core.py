@@ -3,7 +3,7 @@
 stage4_core.py — Shared, GUI-free annotation logic for Stage 4.
 
 Extracted verbatim from Stage4_annotate_segments.py so that the matplotlib
-annotator and the Qt annotator (Stage4b_annotate_qt.py) run identical
+annotator and the Qt annotator (Stage4_annotate_qt.py) run identical
 detection, SNR and annotation-I/O code. Contains no GUI dependencies.
 
 Blob detection follows Sprengel et al. (2016) §2.1: STFT normalised to [0,1],

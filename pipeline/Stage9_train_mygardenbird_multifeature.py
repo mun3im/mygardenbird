@@ -14,16 +14,16 @@ Default: no augmentation
 Usage Examples
 --------------
 # No augmentation (pretrained weights used by default):
-python Stage8_train_mygardenbird_multifeature.py
+python Stage9_train_mygardenbird_multifeature.py
 
 # With SpecAugment:
-python Stage8_train_mygardenbird_multifeature.py --specaug
+python Stage9_train_mygardenbird_multifeature.py --specaug
 
 # With Mixup (alpha=0.2):
-python Stage8_train_mygardenbird_multifeature.py --mixup 0.2
+python Stage9_train_mygardenbird_multifeature.py --mixup 0.2
 
 # Full example:
-python Stage8_train_mygardenbird_multifeature.py \\
+python Stage9_train_mygardenbird_multifeature.py \\
     --model mobilenetv3s \\
     --feature mel \\
     --splits_csv /Volumes/Evo/MYGARDENBIRD/metadata16khz/splits_mip_80_10_10.csv \\
@@ -725,6 +725,11 @@ def main():
                         help='Enable SpecAugment (time + frequency masking)')
     parser.add_argument('--mixup', type=float, default=None, metavar='ALPHA',
                         help='Enable Mixup augmentation with given alpha (e.g. 0.2). Overrides --specaug.')
+    parser.add_argument('--class_weight', action='store_true',
+                        help='Weight the loss inversely to train-split class '
+                             'frequency (sklearn "balanced" formula). Helps the '
+                             'small classes, which are licence-capped rather '
+                             'than genuinely rare. Not compatible with --mixup.')
     parser.add_argument('--dropout1', type=float, default=None)
     parser.add_argument('--dropout2', type=float, default=None)
     parser.add_argument('--force_cpu', action='store_true')
@@ -875,6 +880,33 @@ def main():
     if args.splits_csv:
         print_per_class_breakdown(args.splits_csv, args.dataset_root, classes)
 
+    # Class weights, counted from the files actually in the train split so the
+    # weights match what the model sees (not the on-disk class totals, which
+    # include val/test). Formula is sklearn's "balanced": n / (k * n_c).
+    class_weight = None
+    if args.class_weight:
+        if aug_mode == 'mixup':
+            print("ERROR: --class_weight cannot be combined with --mixup; "
+                  "Keras ignores class_weight for one-hot targets.")
+            return 1
+        train_files = set(load_splits_from_csv(args.splits_csv, 'train'))
+        counts = [0] * num_classes
+        for i, cls in enumerate(classes):
+            cls_dir = os.path.join(args.dataset_root, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+            counts[i] = sum(1 for f in os.listdir(cls_dir) if f in train_files)
+        total = sum(counts)
+        if min(counts) == 0:
+            zero = [classes[i] for i, c in enumerate(counts) if c == 0]
+            print(f"ERROR: no train clips found for {zero}; cannot weight.")
+            return 1
+        class_weight = {i: total / (num_classes * c) for i, c in enumerate(counts)}
+        print(f"\nClass weighting enabled (balanced over {total} train clips):")
+        for i, cls in enumerate(classes):
+            print(f"  {cls:<33} n={counts[i]:>5}  weight={class_weight[i]:.3f}")
+        print()
+
     print("Creating model...")
     model, base = create_model(args.model, num_classes, args.use_pretrained,
                                dropout1=args.dropout1, dropout2=args.dropout2)
@@ -940,7 +972,8 @@ def main():
         print(f"Warmup: freezing base for {warmup_epochs} epochs...")
         base.trainable = False
         model.compile(optimizer=optimizer, loss=loss_fn, metrics=['accuracy'])
-        model.fit(train_ds, validation_data=val_ds, epochs=warmup_epochs, verbose=1)
+        model.fit(train_ds, validation_data=val_ds, epochs=warmup_epochs,
+                  class_weight=class_weight, verbose=1)
 
         print("Fine-tuning: unfreezing base...")
         base.trainable = True
@@ -966,6 +999,7 @@ def main():
         validation_data=val_ds,
         epochs=args.num_epochs,
         callbacks=callbacks,
+        class_weight=class_weight,
         verbose=1
     )
 
@@ -999,6 +1033,8 @@ def main():
         d1 = args.dropout1 if args.dropout1 is not None else 0.3
         d2 = args.dropout2 if args.dropout2 is not None else 0.2
         tags.append(f"drop{d1}_{d2}")
+    if args.class_weight:
+        tags.append("cw")
     run_name = f"{args.model}_{args.feature}_{pretrained_str}_{'_'.join(tags)}_seed{args.seed}"
 
     output_dir = f"{args.output_dir}_{platform.platform().split('-')[0].lower()}"

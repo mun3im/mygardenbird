@@ -11,7 +11,7 @@ Strategy:
    - Classes with = 600: Include in training (already balanced)
    - Classes with > 600: Include in training (identify samples to remove)
 
-2. 5-Fold Cross-Validation with Source-Based MIP Splitting
+2. 5-Fold Cross-Validation with Source-Grouped Splitting
    - Create folds across ALL eligible classes (>= 600 samples)
    - Each fold: ~20% of data per class (source-based to prevent leakage)
    - Train on 4 folds, validate on 1 fold
@@ -82,18 +82,9 @@ if not tf.__version__.startswith("2.15."):
 
 tf.keras.backend.set_image_data_format('channels_last')
 
-# Import MIP optimization from Stage8a
-try:
-    from pulp import (
-        LpProblem, LpMinimize, LpVariable, lpSum,
-        PULP_CBC_CMD, LpBinary, value
-    )
-    HAS_PULP = True
-except ImportError:
-    HAS_PULP = False
-    print("\n❌ ERROR: PuLP not installed (required for MIP splitting)")
-    print("Install with: pip install pulp\n")
-    exit(1)
+# Folds are built in create_multiclass_5fold_splits with a greedy
+# longest-processing-time pass -- no solver, and the PuLP dependency the old
+# MIP formulation needed is gone.
 
 # Global variables
 SAMPLE_RATE = 16000
@@ -161,117 +152,100 @@ def load_dataset_structure(dataset_root: Path, eligible_classes: List[str]) -> D
 
 
 # ============================================================================
-# MIP-Based 5-Fold Splitting (Multi-Class)
+# Source-Grouped 5-Fold Splitting (Multi-Class)
 # ============================================================================
 
-def create_multiclass_5fold_mip_splits(structure: Dict[str, Dict[str, List[str]]],
-                                       verbose: bool = True) -> Dict[str, Dict[str, str]]:
-    """
-    Use MIP to create 5 balanced folds (~20% each per class) with source-based separation.
+def create_multiclass_5fold_splits(structure: Dict[str, Dict[str, List[str]]],
+                                   verbose: bool = True,
+                                   repeat_seed: int = None) -> Dict[str, Dict[str, str]]:
+    """Assign each source to one of NUM_FOLDS folds, per class.
+
+    Sources are placed whole -- every clip of a recording lands in one fold --
+    so no source is split and the cross-validation cannot leak. Placement is
+    longest-processing-time-first: take sources from largest to smallest and
+    put each in the currently emptiest fold. That is the classic greedy
+    makespan heuristic, and on this data it lands within a clip of a perfect
+    split.
+
+    History, because two earlier approaches did worse:
+
+    * A MIP balanced fold sizes exactly, but the step that gave each repeat a
+      different partition dealt shuffled sources into slot labels held in
+      sorted order, so a 3-clip source could take a slot sized for 12. The
+      balance was destroyed before training: measured spread reached 168 clips
+      against a 157-clip target, and fold0 came out oversized in every class
+      of every repeat.
+    * StratifiedGroupKFold groups correctly but balances *class proportions*,
+      and within one class the labels are constant, so stratification is inert
+      and it only distributes groups. Measured mean spread was 50.7 clips
+      (max 83) on the five eligible classes.
+
+    Greedy LPT gave mean spread 0.2 (max 1) on the same data with no solver
+    and no PuLP dependency, which is why it is used here.
 
     Args:
         structure: Dataset structure (class -> source -> files)
         verbose: Print progress messages
+        repeat_seed: Seed for the tie-break shuffle, so each repeat sees a
+            different partition. Without it a sample would always be validated
+            against the same training set and "consistently misclassified"
+            would mean much less than it appears to.
 
     Returns:
         assignment: Dict[class][source] = 'fold0' | 'fold1' | ... | 'fold4'
     """
     if verbose:
-        print(f"\nCreating 5-fold MIP splits across {len(structure)} classes...")
+        print(f"\nCreating 5-fold source-grouped splits across "
+              f"{len(structure)} classes...")
 
-    # Create MIP problem
-    prob = LpProblem("MultiClass_5Fold_Split", LpMinimize)
-
-    # Decision variables: x[class][source][fold] = 1 if source assigned to fold
-    x = {}
-    for class_name, sources in structure.items():
-        x[class_name] = {}
-        # Sanitize class name and source for PuLP variable names (alphanumeric + underscore only)
-        safe_cls = class_name.replace(' ', '_').replace('-', '_').replace('.', '_')
-        for source in sources.keys():
-            safe_src = source.replace(' ', '_').replace('-', '_').replace('.', '_')
-            x[class_name][source] = {
-                f'fold{i}': LpVariable(f"x_{safe_cls}_{safe_src}_fold{i}", cat=LpBinary)
-                for i in range(NUM_FOLDS)
-            }
-
-    # Constraint 1: Each source assigned to exactly one fold
-    for class_name, sources in structure.items():
-        for source in sources.keys():
-            prob += lpSum([x[class_name][source][f'fold{i}'] for i in range(NUM_FOLDS)]) == 1
-
-    # Calculate target counts per class per fold
-    class_totals = {cls: sum(len(files) for files in sources.values())
-                    for cls, sources in structure.items()}
-
-    # Slack variables for fold size deviations per class
-    slack_pos = {}
-    slack_neg = {}
-    for class_name in structure.keys():
-        # Sanitize class name for PuLP variable names
-        safe_cls = class_name.replace(' ', '_').replace('-', '_').replace('.', '_')
-        slack_pos[class_name] = {
-            f'fold{i}': LpVariable(f"slack_pos_{safe_cls}_fold{i}", lowBound=0)
-            for i in range(NUM_FOLDS)
-        }
-        slack_neg[class_name] = {
-            f'fold{i}': LpVariable(f"slack_neg_{safe_cls}_fold{i}", lowBound=0)
-            for i in range(NUM_FOLDS)
-        }
-
-    # Constraint 2: Each class should have ~20% per fold (soft constraint)
-    for class_name, sources in structure.items():
-        total = class_totals[class_name]
-        target_per_fold = total // NUM_FOLDS
-
-        for i in range(NUM_FOLDS):
-            fold_samples = lpSum([
-                x[class_name][source][f'fold{i}'] * len(sources[source])
-                for source in sources.keys()
-            ])
-            prob += (fold_samples - slack_pos[class_name][f'fold{i}'] +
-                     slack_neg[class_name][f'fold{i}'] == target_per_fold)
-
-    # Objective: Minimize total deviation from target fold sizes
-    prob += lpSum([
-        slack_pos[class_name][f'fold{i}'] + slack_neg[class_name][f'fold{i}']
-        for class_name in structure.keys()
-        for i in range(NUM_FOLDS)
-    ])
-
-    # Solve
-    if verbose:
-        print("  Solving MIP problem (may take a few minutes)...")
-    solver = PULP_CBC_CMD(msg=0, timeLimit=600)
-    prob.solve(solver)
-
-    if prob.status != 1:
-        raise RuntimeError(f"MIP solver failed: status={prob.status}")
-
-    # Extract assignment
+    seed = 0 if repeat_seed is None else int(repeat_seed)
+    rng = np.random.RandomState(seed)
     assignment = {}
-    for class_name, sources in structure.items():
-        assignment[class_name] = {}
-        for source in sources.keys():
-            for i in range(NUM_FOLDS):
-                if value(x[class_name][source][f'fold{i}']) > 0.5:
-                    assignment[class_name][source] = f'fold{i}'
-                    break
 
-    # Print fold statistics
+    for class_name, sources in structure.items():
+        # Group sources by clip count, shuffle within each size, then walk
+        # sizes high to low. Shuffling only among equal-sized sources keeps the
+        # greedy order optimal while still letting the seed change which
+        # sources share a fold.
+        by_size = defaultdict(list)
+        for src, files in sources.items():
+            by_size[len(files)].append(src)
+
+        order = []
+        for n in sorted(by_size, reverse=True):
+            group = sorted(by_size[n])        # deterministic before shuffling
+            rng.shuffle(group)
+            order.extend((src, n) for src in group)
+
+        loads = [0] * NUM_FOLDS
+        assignment[class_name] = {}
+        for src, n in order:
+            i = int(np.argmin(loads))
+            assignment[class_name][src] = f'fold{i}'
+            loads[i] += n
+
+        if len(assignment[class_name]) != len(sources):
+            raise RuntimeError(
+                f"{class_name}: assigned {len(assignment[class_name])} of "
+                f"{len(sources)} sources")
+
     if verbose:
         print("\n  Fold statistics per class:")
-        print(f"  {'Class':<30} {'fold0':>6} {'fold1':>6} {'fold2':>6} {'fold3':>6} {'fold4':>6} {'Total':>7}")
-        print("  " + "-" * 80)
+        print(f"  {'Class':<30} {'fold0':>6} {'fold1':>6} {'fold2':>6} "
+              f"{'fold3':>6} {'fold4':>6} {'Total':>7} {'Spread':>7}")
+        print("  " + "-" * 88)
 
         for class_name in sorted(structure.keys()):
             fold_counts = defaultdict(int)
             for source, fold in assignment[class_name].items():
                 fold_counts[fold] += len(structure[class_name][source])
 
-            counts_str = [f"{fold_counts[f'fold{i}']:>6}" for i in range(NUM_FOLDS)]
-            total = sum(fold_counts.values())
-            print(f"  {class_name:<30} " + " ".join(counts_str) + f" {total:>7}")
+            vals = [fold_counts[f'fold{i}'] for i in range(NUM_FOLDS)]
+            counts_str = [f"{v:>6}" for v in vals]
+            total = sum(vals)
+            spread = max(vals) - min(vals)
+            print(f"  {class_name:<30} " + " ".join(counts_str) +
+                  f" {total:>7} {spread:>7}")
         print()
 
     return assignment
@@ -764,6 +738,11 @@ def main():
                         help='Force CPU mode (disable GPU)')
     parser.add_argument('--single_fold', action='store_true',
                         help='Run only fold 0 (quick accuracy probe; use until val_acc >= 80%%)')
+    parser.add_argument('--repeat_seed', type=int, default=None,
+                        help='Seed the fold shuffle. Pass a distinct value per '
+                             'repeat so each run validates every sample against a '
+                             'different training set; reusing one seed reuses one '
+                             'partition and weakens "consistently misclassified".')
 
     args = parser.parse_args()
 
@@ -797,7 +776,7 @@ def main():
     print(f"  to enable balancing to exactly {TARGET_SAMPLES_PER_CLASS} samples per class")
     print()
     print("METHOD:")
-    print(f"  - 5-Fold Cross-Validation with MIP source-based splitting")
+    print(f"  - 5-Fold Cross-Validation with source-grouped splitting")
     print(f"  - Model: MobileNetV3Small (pretrained)")
     print(f"  - Max epochs per fold: {MAX_EPOCHS_PER_FOLD}")
     print(f"  - Feature: Mel spectrogram (224x224)")
@@ -862,8 +841,9 @@ def main():
     print("Loading dataset structure...")
     structure = load_dataset_structure(dataset_root, eligible_classes)
 
-    # Create 5-fold MIP splits
-    assignment = create_multiclass_5fold_mip_splits(structure)
+    # Create 5-fold source-grouped splits
+    assignment = create_multiclass_5fold_splits(
+        structure, repeat_seed=args.repeat_seed)
 
     # Run CV (single fold for probing, full 5-fold once val_acc >= 80%)
     if args.single_fold:

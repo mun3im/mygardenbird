@@ -269,7 +269,23 @@ def load_xc_metadata(metadata_dir):
     original recorder rate, not the extracted clip rate).
     """
     meta = {}
-    for csv_file in Path(metadata_dir).glob("*.csv"):
+
+    # The current catalogue is region-filtered and reflects what Xeno-canto
+    # serves today, so it omits sources that have since been withdrawn and
+    # (by design) the out-of-region sources the plus edition uses. Reading the
+    # superseded catalogue first and letting the current one overwrite it
+    # keeps those rows resolvable: on 2026-11-09 this was the difference
+    # between 78 sources carrying a blank licence and all 1,255 being known.
+    # A blank licence is not a permission, so losing one is a compliance bug.
+    search_dirs = []
+    old_dir = Path(metadata_dir).parent / "per_species_csv_old"
+    if old_dir.is_dir():
+        search_dirs.append(old_dir)
+    search_dirs.append(Path(metadata_dir))
+
+    csv_files = [p for base in search_dirs for p in sorted(base.glob("*.csv"))]
+
+    for csv_file in csv_files:
         try:
             with open(csv_file, newline="", encoding="utf-8") as f:
                 for row in csv.DictReader(f):
@@ -283,6 +299,11 @@ def load_xc_metadata(metadata_dir):
                         "cc_license":    _lic_to_spdx(row.get("lic", "")),
                         "type_label":    normalise_type(row.get("type", "")),
                         "country":       row.get("cnt", ""),
+                        # Stage 8's --group-by-site keys on (recordist, lat, lon).
+                        # Without this the site key falls back to source_id for
+                        # every row, so the site-grouped split silently becomes
+                        # an ordinary source-grouped one.
+                        "recordist":     row.get("rec", ""),
                     }
         except Exception:
             continue
@@ -319,13 +340,19 @@ def generate_recordings_csv(results, output_path, xc_metadata):
     Write recordings.csv — one row per unique source recording (PK: source_id).
 
     Columns: source_id, species_common, species_scientific,
-             quality_grade, cc_license, type_label, latitude, longitude, country
+             quality_grade, cc_license, type_label, latitude, longitude,
+             country, recordist
+
+    `recordist` is required by Stage 8's --group-by-site, which forms its site
+    key from (recordist, rounded lat, rounded lon). It was missing until
+    2026-11-09, so every site-grouped split produced before then fell back to
+    source_id grouping and did not actually close site-level leakage.
     """
     fieldnames = [
         "source_id",
         "species_common", "species_scientific",
         "quality_grade", "cc_license", "type_label",
-        "latitude", "longitude", "country",
+        "latitude", "longitude", "country", "recordist",
     ]
 
     seen = {}   # source_id -> row (first clip wins; all clips from same source share metadata)
@@ -349,6 +376,7 @@ def generate_recordings_csv(results, output_path, xc_metadata):
                 "latitude":           meta.get("lat", ""),
                 "longitude":          meta.get("lon", ""),
                 "country":            meta.get("country", ""),
+                "recordist":          meta.get("recordist", ""),
             }
 
     rows = [seen[k] for k in sorted(seen)]

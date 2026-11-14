@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stage4b_annotate_qt.py — BirdClip Picker.
+Stage4_annotate_qt.py — BirdClip Picker.
 
 Chooses which 3-second slices of a bird recording become dataset clips.
 
@@ -13,7 +13,7 @@ Status marker in the file list:
     ❌       zero-length    — rejected
     1️⃣ … 🔟  has segments   — accepted, showing the segment count
 
-Run:  python3 Stage4b_annotate_qt.py [--folder DIR] [--file FILE]
+Run:  python3 Stage4_annotate_qt.py [--folder DIR] [--file FILE]
 """
 
 import argparse
@@ -39,7 +39,9 @@ from stage4_core import (
     detect_sound_blobs, compute_freq_bounds, create_fixed_segments,
     annotation_path_for, load_annotation,
 )
-from stage4_queue import Status, scan_folder, format_summary, next_unevaluated
+from stage4_queue import (Status, scan_folder, format_summary,
+                          format_clip_total, species_segments, species_root,
+                          GRADE_DIRS, next_unevaluated)
 
 pg.setConfigOptions(imageAxisOrder="row-major", antialias=False)
 
@@ -60,9 +62,29 @@ LABEL_FILL_SELECTED = pg.mkBrush(0, 130, 0, 235)
 LABEL_FILL_NORMAL = pg.mkBrush(15, 15, 15, 215)
 LABEL_POINT_SIZE = 22          # roughly double the previous default
 
-# Waveform spans. The waveform sits on white, so the spectrogram's bright
+# Bottom plot shows frame energy in dB relative to the file's own peak bin.
+# The floor is fixed rather than autoscaled so that trace height is
+# comparable between files -- a quiet source should look quiet.
+ENERGY_FLOOR_DB = -75.0
+
+# Every plot pins its left axis to this width so the linked x-axes stay in
+# step; see the setXLink call for why a mismatch skews them.
+AXIS_LEFT_WIDTH = 62
+
+# Height of the raw-waveform strip between spectrogram and energy plot.
+# Deliberately small -- it is there to show clipping and asymmetry, not to be
+# read quantitatively, so it gets a thumb's height and no tick values.
+STRIP_HEIGHT_PX = 54
+
+# Per-class clip goal shown beside the running total. Annotation stops being
+# useful for a species once it is met, so the queue reports the shortfall
+# rather than leaving the total to be compared by eye. Unrelated to
+# MAX_SEGMENTS, which caps segments within one source.
+CLIP_TARGET = 600
+
+# Energy-plot spans. The plot sits on white, so the spectrogram's bright
 # yellow/green washes out there and darker, more saturated fills are used.
-# Amplitude has no band to bound the way frequency does, so these span the
+# The y-axis is a single dB level, not a frequency band, so these span the
 # full height.
 WAVE_SPAN_SELECTED = pg.mkBrush(0, 150, 0, 60)
 WAVE_SPAN_NORMAL = pg.mkBrush(205, 125, 0, 30)
@@ -128,7 +150,15 @@ class SegmentBox(pg.GraphicsObject):
     pyqtgraph's LinearRegionItem always spans the full y-axis, which hides the
     spectrogram and gives no sense of the segment's frequency extent, so the
     box is drawn explicitly from the segment's (fmin, fmax) bounds instead.
+
+    A blob that reaches the top of the displayed band would put the box's top
+    edge exactly on the view boundary, where the pen — cosmetic, so centred on
+    the edge and half outside it — gets clipped and the yellow/green line
+    disappears. The top is therefore held one pixel below the view's top, so
+    the full stroke stays inside the viewport at any zoom or cutoff.
     """
+
+    TOP_INSET_PX = 1
 
     def __init__(self, index, start, fmin, fmax, selected, owner):
         super().__init__()
@@ -142,11 +172,45 @@ class SegmentBox(pg.GraphicsObject):
         self.setAcceptHoverEvents(True)
         self._rebuild()
 
+    def _visible_top(self):
+        """fmax clamped to one pixel below the view's top edge.
+
+        Falls back to the raw fmax before the item is parented to a view, when
+        there is no transform to convert pixels into Hz.
+        """
+        view = self.getViewBox()
+        if view is None:
+            return self.fmax
+        try:
+            y_lo, y_hi = view.viewRange()[1]
+            px_h = view.viewPixelSize()[1]
+        except Exception:                             # noqa: BLE001
+            return self.fmax
+        if not px_h:
+            return self.fmax
+        # Half the widest pen plus the inset, so even the 3 px selected stroke
+        # is fully drawn rather than straddling the boundary.
+        margin = px_h * (self.TOP_INSET_PX + 2)
+        ceiling = y_hi - margin
+        if self.fmax <= ceiling:
+            return self.fmax
+        # The band reaches past the ceiling. Clamp to it, but never invert:
+        # a band lying entirely above the cutoff (fmin > ceiling, possible
+        # when the user picks a cutoff below the blob) still gets a visible
+        # sliver rather than a negative height.
+        return max(ceiling, self.fmin + px_h)
+
     def _rebuild(self):
+        top = self._visible_top()
         self._rect = QtCore.QRectF(self.start, self.fmin,
-                                   SEGMENT_DURATION, self.fmax - self.fmin)
+                                   SEGMENT_DURATION, top - self.fmin)
         self.prepareGeometryChange()
         self.update()
+
+    def viewRangeChanged(self):
+        """Re-clamp on zoom, pan or a frequency-cutoff change."""
+        self._rebuild()
+        self.owner.reposition_label(self.index, self._visible_top())
 
     def boundingRect(self):
         return self._rect
@@ -163,7 +227,8 @@ class SegmentBox(pg.GraphicsObject):
     def set_selected(self, selected):
         if self.selected != selected:
             self.selected = selected
-            self.update()
+            # The selected pen is wider, so the inset it needs differs.
+            self._rebuild()
 
     # Dragging moves the box in time only; width and frequency band are fixed.
     def mousePressEvent(self, ev):
@@ -191,12 +256,12 @@ class SegmentBox(pg.GraphicsObject):
 
 
 class WaveSpan(pg.LinearRegionItem):
-    """Read-only time span marking a segment on the waveform.
+    """Read-only time span marking a segment on the energy plot.
 
     Unlike SegmentBox this spans the full height, which is what's wanted here:
-    the y-axis is amplitude, so there is no band to draw tight to. Editing
-    stays on the spectrogram, so the span is immovable and only reports clicks
-    as a selection.
+    the y-axis is a single dB level, so there is no band to draw tight to.
+    Editing stays on the spectrogram, so the span is immovable and only
+    reports clicks as a selection.
     """
 
     def __init__(self, index, start, selected, owner):
@@ -314,6 +379,7 @@ class Annotator(QtWidgets.QMainWindow):
         self.region_items = []
         self.label_items = []
         self.wave_items = []
+        self.strip_items = []
         self._thread = None
         self._worker = None
         self._dthread = None
@@ -344,6 +410,15 @@ class Annotator(QtWidgets.QMainWindow):
             start = folder or self._last_dir()
             if start and os.path.isdir(start):
                 self.open_folder(start)
+            elif start:
+                # The folder was remembered but is not there now -- typically
+                # an unmounted volume, since the audio lives on an external
+                # drive. Say so instead of implying nothing was saved, and
+                # keep the value: it will work again once the drive is back.
+                self.statusBar().showMessage(
+                    f"Last folder unavailable (not mounted?): {start}",
+                    15000)
+                print(f"  last folder not found: {start}", flush=True)
             else:
                 self.statusBar().showMessage(
                     "Open a folder to begin (last folder is remembered).")
@@ -360,6 +435,13 @@ class Annotator(QtWidgets.QMainWindow):
         btn_open.clicked.connect(self.choose_folder)
         left.addWidget(btn_open)
 
+        # Directly under the folder button: the running clip total belongs
+        # beside the thing that sets its scope, and stays on screen without
+        # the eye travelling past the whole file list to reach it.
+        self.summary_label = QtWidgets.QLabel("No folder loaded")
+        self.summary_label.setWordWrap(True)
+        left.addWidget(self.summary_label)
+
         self.filter_box = QtWidgets.QComboBox()
         self.filter_box.addItems(["All files", "⬜ To evaluate",
                                   "✅ Accepted", "❌ Rejected"])
@@ -370,10 +452,6 @@ class Annotator(QtWidgets.QMainWindow):
         self.list_widget.setFont(_mono_font())
         self.list_widget.itemSelectionChanged.connect(self._on_list_selection)
         left.addWidget(self.list_widget, 1)
-
-        self.summary_label = QtWidgets.QLabel("No folder loaded")
-        self.summary_label.setWordWrap(True)
-        left.addWidget(self.summary_label)
 
         left_panel = QtWidgets.QWidget()
         left_panel.setLayout(left)
@@ -393,17 +471,61 @@ class Annotator(QtWidgets.QMainWindow):
         self.spec_plot.addItem(self.spec_cursor)
         right.addWidget(self.spec_plot, 3)
 
+        # Thin waveform strip between the two main plots. The energy curve
+        # answers "is there enough signal here", but it discards sign and
+        # shape, so clipping, DC offset and one-sided transients disappear
+        # into it. The raw trace still shows those at a glance, and at a
+        # thumb's height it costs almost no vertical space.
+        # A plain ViewBox, not ScrollPanViewBox: the strip is a passive
+        # reference trace, so it takes no wheel or drag input of its own and
+        # follows the spectrogram through setXLink instead. Scrolling over it
+        # does nothing rather than panning time out from under the plot the
+        # pointer is not on.
+        self.strip_plot = pg.PlotWidget()
+        self.strip_plot.setLabel("left", "Wave")
+        # Both axes locked. The wheel is handled on the ViewBox, and with
+        # mouse input disabled there pyqtgraph's own zoom-on-wheel is
+        # suppressed too, so the strip ignores the wheel entirely.
+        self.strip_plot.setMouseEnabled(x=False, y=False)
+        self.strip_plot.setMenuEnabled(False)
+        self.strip_plot.setBackground("w")
+        self.strip_plot.hideAxis("bottom")        # time axis lives on the energy plot
+        self.strip_plot.getPlotItem().getAxis("left").setStyle(showValues=False)
+        self.strip_plot.setFixedHeight(STRIP_HEIGHT_PX)
+        self.strip_curve = self.strip_plot.plot(
+            pen=pg.mkPen((70, 70, 70), width=1))
+        self.strip_cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("r", width=2))
+        self.strip_cursor.setVisible(False)
+        self.strip_plot.addItem(self.strip_cursor)
+        self.strip_plot.setXLink(self.spec_plot)
+        right.addWidget(self.strip_plot)
+
         self.wave_plot = pg.PlotWidget(viewBox=ScrollPanViewBox())
-        self.wave_plot.setLabel("left", "Amplitude")
+        self.wave_plot.setLabel("left", "Energy (dB)")
         self.wave_plot.setLabel("bottom", "Time (s)")
         self.wave_plot.setMouseEnabled(x=True, y=False)
         self.wave_plot.setBackground("w")
-        self.wave_curve = self.wave_plot.plot(pen=pg.mkPen((10, 90, 170), width=1))
-        self.wave_plot.showGrid(x=True, y=False, alpha=0.25)
+        # Filled to the floor: energy is a magnitude, and the shaded area
+        # makes the quiet-vs-loud judgement readable at a glance.
+        self.wave_curve = self.wave_plot.plot(
+            pen=pg.mkPen((10, 90, 170), width=1),
+            fillLevel=ENERGY_FLOOR_DB, brush=pg.mkBrush(10, 90, 170, 60))
+        # y grid on too -- the dB level is now a quantity worth reading off.
+        self.wave_plot.showGrid(x=True, y=True, alpha=0.25)
         self.wave_cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("r", width=2))
         self.wave_cursor.setVisible(False)
         self.wave_plot.addItem(self.wave_cursor)
         self.wave_plot.setXLink(self.spec_plot)
+
+        # Force every left axis to the same width. setXLink aligns the views'
+        # right edges and then scales the span by their width ratio, so if two
+        # axes differ by even a few pixels -- and they do, because
+        # "Frequency (Hz)", "Wave" and "Energy (dB)" reserve different label
+        # widths -- the left edge drifts apart. The error is proportional to
+        # the zoomed span (~100 ms over a 10 s window, 200 ms over 20 s),
+        # which is worst on exactly the long files where alignment matters
+        # most. Deferred to _align_axes() so it runs after the widgets are
+        # laid out rather than fighting the layout during construction.
         right.addWidget(self.wave_plot, 1)
 
         # Detection controls
@@ -453,6 +575,26 @@ class Annotator(QtWidgets.QMainWindow):
 
         root.addLayout(right, 1)
         self.statusBar().showMessage("Ready")
+
+    def _align_axes(self):
+        """Pin all three left axes to one width so the linked x-axes agree.
+
+        Run after the window is shown, not during construction: setting an
+        axis width while the layout is still being built makes Qt re-enter
+        layout from inside widget creation.
+        """
+        for plot in (self.spec_plot, self.strip_plot, self.wave_plot):
+            try:
+                plot.getPlotItem().getAxis("left").setWidth(AXIS_LEFT_WIDTH)
+            except Exception as exc:                      # noqa: BLE001
+                print(f"  (could not pin axis width: {exc})", flush=True)
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        # Once only; showEvent also fires on un-minimise and re-raise.
+        if not getattr(self, "_axes_aligned", False):
+            self._axes_aligned = True
+            self._align_axes()
 
     @staticmethod
     def _slider(lo, hi, val, step):
@@ -511,6 +653,22 @@ class Annotator(QtWidgets.QMainWindow):
         start = next_unevaluated(self.entries, -1)
         self.load_index(start if start is not None else 0)
 
+    def _queue_scope(self):
+        """The species the clip total covers, e.g. 'Common Iora'.
+
+        The total spans every grade folder, so this names the species even
+        when a single grade was opened; the queue below it still lists only
+        the opened folder.
+        """
+        folder = getattr(self, "root_folder", None)
+        if not folder:
+            return ""
+        name = os.path.basename(species_root(folder))
+        if not name:
+            return ""
+        grade = os.path.basename(os.path.normpath(folder))
+        return f"{name}  (in {grade})" if grade in GRADE_DIRS else name
+
     def _visible_indices(self):
         mode = self.filter_box.currentIndex()
         wanted = {1: Status.TO_EVALUATE, 2: Status.ACCEPTED, 3: Status.REJECTED}.get(mode)
@@ -527,7 +685,14 @@ class Annotator(QtWidgets.QMainWindow):
                 item.setBackground(QtGui.QColor(220, 240, 255))
             self.list_widget.addItem(item)
         self.list_widget.blockSignals(False)
-        self.summary_label.setText(format_summary(self.entries))
+        # Species, then the species-wide total on its own line, then progress
+        # through the opened folder's queue.
+        folder = getattr(self, "root_folder", None)
+        clips = species_segments(folder) if folder else 0
+        lines = [self._queue_scope(),
+                 format_clip_total(clips, target=CLIP_TARGET),
+                 format_summary(self.entries)]
+        self.summary_label.setText("\n".join(ln for ln in lines if ln))
 
     def _on_list_selection(self):
         items = self.list_widget.selectedItems()
@@ -688,31 +853,97 @@ class Annotator(QtWidgets.QMainWindow):
         self.wave_plot.setLimits(xMin=0, xMax=dur)
         self.spec_plot.setXRange(0, dur, padding=0)
 
-        # Min/max envelope: plain subsampling drops peaks and renders dense
-        # audio as a solid block, so each output column keeps its true extremes.
-        y = d["y"]
+        self._draw_waveform()
+        self._draw_energy()
+        self.wave_plot.setXRange(0, dur, padding=0)
+
+    def _draw_waveform(self):
+        """Min/max envelope in the thin strip.
+
+        Plain subsampling drops peaks and renders dense audio as a solid
+        block, so each output column keeps its true extremes instead.
+
+        The time axis is built from the samples actually used: reshaping
+        discards the remainder of a partial final column, and spreading the
+        axis over the full duration anyway -- which the old code did -- shifts
+        the whole trace against the spectrogram, by more the longer the file.
+        """
+        d = self.audio
+        y, sr, dur = d["y"], d["sr"], d["duration"]
+
         target_cols = 3000
         if len(y) > target_cols * 2:
             per = len(y) // target_cols
-            trimmed = y[:per * target_cols].reshape(target_cols, per)
+            kept = per * target_cols
+            trimmed = y[:kept].reshape(target_cols, per)
             lo, hi = trimmed.min(axis=1), trimmed.max(axis=1)
-            t = np.repeat(np.linspace(0, dur, target_cols), 2)
+            # Column i covers samples [i*per, (i+1)*per), so its left edge is
+            # at i*per/sr. Ending the axis at kept/sr keeps the drawn trace
+            # over the samples it was computed from.
+            t = np.repeat(np.linspace(0, kept / sr, target_cols,
+                                      endpoint=False), 2)
             amp = np.empty(target_cols * 2, dtype=float)
             amp[0::2], amp[1::2] = lo, hi
         else:
-            t = np.linspace(0, dur, len(y))
+            t = np.arange(len(y)) / sr
             amp = y
 
-        self.wave_curve.setData(t, amp)
-        self.wave_plot.setXRange(0, dur, padding=0)
+        self.strip_curve.setData(t, amp)
 
-        # These recordings have crest factors around 20-25, so scaling to the
-        # absolute peak flattens the actual vocalisation into a line near zero.
-        # Scale to a high percentile instead and let rare transients clip.
-        scale = float(np.percentile(np.abs(y), 99.5))
+        # Symmetric about zero so asymmetry and DC offset stay visible; a
+        # high percentile rather than the peak, because these recordings have
+        # crest factors around 20-25 and scaling to a rare transient would
+        # flatten the vocalisation into a line near zero.
+        scale = float(np.percentile(np.abs(y), 99.5)) if len(y) else 0.0
         if scale <= 0:
-            scale = float(np.abs(y).max()) or 1.0
-        self.wave_plot.setYRange(-scale * 1.3, scale * 1.3, padding=0)
+            scale = float(np.abs(y).max()) if len(y) else 0.0
+        if scale <= 0:
+            scale = 1e-4          # digital silence: avoid a zero-height range
+        self.strip_plot.setYRange(-scale * 1.2, scale * 1.2, padding=0)
+        self.strip_plot.setXRange(0, dur, padding=0)
+
+    def _draw_energy(self):
+        """Frame energy in dB, on the spectrogram's own time grid.
+
+        Replaces the amplitude envelope: a quiet source reads as a low, flat
+        trace with little separation between calls and background, which is
+        the thing to spot before spending time annotating it. Amplitude hid
+        that — its 99.5th-percentile autoscale rescaled every file to fill the
+        axis, so a weak recording looked much like a strong one.
+
+        The curve is summed from S_db_full rather than recomputed from the
+        samples so that column n lands at exactly the time the spectrogram
+        puts frame n, n * DISPLAY_HOP / sr. Deriving a second time axis from
+        the sample count instead is what used to skew the two plots apart on
+        long files.
+        """
+        d = self.audio
+        S_db, sr = d["S_db_full"], d["sr"]
+
+        # S_db_full is power in dB relative to its own max. Undo the log to
+        # sum power across frequency, then re-log: averaging dB directly
+        # would weight near-silent bins as heavily as the call itself.
+        power = 10.0 ** (S_db / 10.0)
+        frame_power = power.sum(axis=0) / power.shape[0]
+        db = 10.0 * np.log10(np.maximum(frame_power, 1e-12))
+
+        t = np.arange(S_db.shape[1]) * DISPLAY_HOP / sr
+
+        self.wave_curve.setData(t, db)
+        self._set_energy_yrange(db)
+
+    def _set_energy_yrange(self, db):
+        """Fixed-floor dB window, so loud and quiet files are comparable.
+
+        A per-file autoscale is what made the old amplitude view useless for
+        triage. The floor is pinned at ENERGY_FLOOR_DB and only the top
+        adapts, so the height of the trace means the same thing in every file.
+        """
+        top = float(db.max()) if db.size else 0.0
+        # Keep a little headroom, and never let a near-silent file collapse
+        # into a window shorter than the floor it is being judged against.
+        top = max(top + 3.0, ENERGY_FLOOR_DB + 12.0)
+        self.wave_plot.setYRange(ENERGY_FLOOR_DB, min(top, 3.0), padding=0)
 
     def _populate_freq_combo(self):
         sr = self.audio["sr"]
@@ -738,9 +969,12 @@ class Annotator(QtWidgets.QMainWindow):
             self.spec_plot.removeItem(it)
         for it in self.wave_items:
             self.wave_plot.removeItem(it)
+        for it in self.strip_items:
+            self.strip_plot.removeItem(it)
         self.region_items.clear()
         self.label_items.clear()
         self.wave_items.clear()
+        self.strip_items.clear()
 
         if len(self.segments) > MAX_SEGMENTS:
             del self.segments[MAX_SEGMENTS:]
@@ -766,7 +1000,9 @@ class Annotator(QtWidgets.QMainWindow):
                                 color=LABEL_TEXT_COLOR,
                                 fill=LABEL_FILL_SELECTED if sel else LABEL_FILL_NORMAL)
             label.setFont(_label_font())
-            label.setPos(start + SEGMENT_DURATION, fmax)
+            # Anchor on the box's clamped top, not the raw fmax, so the badge
+            # tracks the line it is meant to sit under.
+            label.setPos(start + SEGMENT_DURATION, box._visible_top())
             label.setZValue(11)
             self.spec_plot.addItem(label)
             self.label_items.append(label)
@@ -775,22 +1011,41 @@ class Annotator(QtWidgets.QMainWindow):
             self.wave_plot.addItem(span)
             self.wave_items.append(span)
 
+            strip_span = WaveSpan(i, start, selected=sel, owner=self)
+            self.strip_plot.addItem(strip_span)
+            self.strip_items.append(strip_span)
+
         self._update_info()
 
     def _nyquist(self):
         return self.audio["sr"] / 2 if self.audio else DEFAULT_FREQ_CUTOFF
+
+    def reposition_label(self, i, top):
+        """Keep a segment's badge on its box's (clamped) top edge.
+
+        Called from SegmentBox.viewRangeChanged, which can fire while the item
+        lists are mid-rebuild, so the index is bounds-checked.
+        """
+        if not (0 <= i < len(self.label_items)) or i >= len(self.region_items):
+            return
+        # The box's own start, not self.segments[i], so a range change during a
+        # drag does not snap the badge back to the uncommitted position.
+        start = self.region_items[i].start
+        self.label_items[i].setPos(start + SEGMENT_DURATION, top)
 
     def preview_segment_move(self, i, new_start):
         """Live feedback during a drag — moves the box only, no state change."""
         if not (0 <= i < len(self.segments)) or i >= len(self.region_items):
             return
         lo = self._clamp_start(i, new_start)
-        self.region_items[i].set_start(lo)
+        box = self.region_items[i]
+        box.set_start(lo)
         if i < len(self.label_items):
-            fmax = self.bounds[i][1] if i < len(self.bounds) else self._nyquist()
-            self.label_items[i].setPos(lo + SEGMENT_DURATION, fmax)
+            self.label_items[i].setPos(lo + SEGMENT_DURATION, box._visible_top())
         if i < len(self.wave_items):
             self.wave_items[i].set_start(lo)
+        if i < len(self.strip_items):
+            self.strip_items[i].set_start(lo)
 
     def commit_segment_move(self, i, new_start):
         """Persist a finished drag.
@@ -914,6 +1169,8 @@ class Annotator(QtWidgets.QMainWindow):
             box.set_selected(i == self.selected)
         for i, span in enumerate(self.wave_items):
             span.set_selected(i == self.selected)
+        for i, span in enumerate(self.strip_items):
+            span.set_selected(i == self.selected)
         for i, label in enumerate(self.label_items):
             # TextItem has no setFill(); assigning then re-setting the text is
             # what makes it repaint. setText() also resets the colour, so the
@@ -1012,6 +1269,7 @@ class Annotator(QtWidgets.QMainWindow):
         self.play_clock = QtCore.QElapsedTimer()
         self.play_clock.start()
         self.spec_cursor.setVisible(True)
+        self.strip_cursor.setVisible(True)
         self.wave_cursor.setVisible(True)
         self.play_button.setText("■ Stop (Space)")
         self.play_timer.start()
@@ -1024,6 +1282,7 @@ class Annotator(QtWidgets.QMainWindow):
         except Exception:                             # noqa: BLE001
             pass
         self.spec_cursor.setVisible(False)
+        self.strip_cursor.setVisible(False)
         self.wave_cursor.setVisible(False)
         if hasattr(self, "play_button"):
             self.play_button.setText("▶ Play (Space)")
@@ -1037,6 +1296,7 @@ class Annotator(QtWidgets.QMainWindow):
             self.stop_playback()
             return
         self.spec_cursor.setPos(t)
+        self.strip_cursor.setPos(t)
         self.wave_cursor.setPos(t)
 
     # ── Save / reject ────────────────────────────────────────────────────
@@ -1092,7 +1352,8 @@ class Annotator(QtWidgets.QMainWindow):
                     self.load_index(first)
                     return
             self.statusBar().showMessage(
-                f"End of queue — {format_summary(self.entries)}. "
+                f"End of queue — "
+                f"{format_summary(self.entries, target=CLIP_TARGET, folder=getattr(self, 'root_folder', None))}. "
                 f"Nothing left to evaluate; window stays open.")
             return
         self.load_index(nxt)
@@ -1129,8 +1390,12 @@ class Annotator(QtWidgets.QMainWindow):
         try:
             with open(STATE_FILE, "w") as f:
                 json.dump(state, f, indent=2)
-        except OSError:
-            pass
+        except OSError as exc:
+            # Losing the state file costs only convenience, so this must not
+            # interrupt annotation -- but a silent failure looks exactly like
+            # the folder never being remembered, so say it once.
+            print(f"  could not save session state to {STATE_FILE}: {exc}",
+                  flush=True)
 
     @classmethod
     def _last_dir(cls):
@@ -1332,10 +1597,13 @@ def _install_sigint(app):
     tick re-enters the interpreter and any pending signal is delivered.
 
     The handler then asks Qt to quit rather than raising, so shutdown goes
-    through the normal path and aboutToQuit still saves the session.
+    through the normal path and aboutToQuit still saves the session. SIGTERM
+    is wired to the same handler, so `kill <pid>` from another terminal saves
+    too — which is the documented escape route when the GUI thread is wedged
+    and the timer below never gets to tick. Only `kill -9` loses the session.
     """
     def handler(signum, frame):                       # noqa: ARG001
-        print("\n  interrupt received, saving session and quitting...")
+        print("\n  interrupt received, saving session and quitting...", flush=True)
         app.quit()
 
     signal.signal(signal.SIGINT, handler)
@@ -1355,7 +1623,16 @@ def main():
     _install_sigint(app)
     win = Annotator(folder=args.folder, single_file=args.file)
     win.show()
-    print("  (Ctrl+C in this terminal quits and saves)")
+    # Ctrl+C only works while the event loop is still turning: the SIGINT
+    # handler runs between bytecodes, so a hang inside the GUI thread blocks
+    # the very timer that would deliver it. Print the PID so the process can
+    # be killed from another terminal when that happens.
+    # flush=True matters here: with stdout redirected to a file or a pipe
+    # Python buffers, and a hang would strand this line in the buffer — unread
+    # at exactly the moment the PID is needed.
+    pid = os.getpid()
+    print(f"  PID {pid}  —  if the window hangs:  kill {pid}   (or  kill -9 {pid})",
+          flush=True)
     # Cmd+Q on macOS quits without delivering closeEvent to the window, so the
     # session state has to be saved from the application's own shutdown signal
     # as well.

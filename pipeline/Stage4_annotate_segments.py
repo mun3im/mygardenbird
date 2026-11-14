@@ -34,7 +34,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
 
 # ── Shared core ───────────────────────────────────────────────────────────────
 # Detection, SNR and annotation I/O live in stage4_core so that this annotator
-# and Stage4b_annotate_qt.py behave identically.
+# and Stage4_annotate_qt.py behave identically.
 from stage4_core import (
     FREQ_MIN, DEFAULT_FREQ_CUTOFF, MP3_NYQUIST_VALUES,
     SPRENGEL_N_FFT, SPRENGEL_HOP, DISPLAY_N_FFT, DISPLAY_HOP,
