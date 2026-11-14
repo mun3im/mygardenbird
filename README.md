@@ -54,7 +54,13 @@ The models will be retrained on the current dataset.
 
 ## Pipeline
 
-Xeno-canto → annotate → extract → QC → BirdNET validate → MIP split → train.
+<p align="center">
+  <img src="docs/img/pipeline.svg" alt="MyGardenBird curation pipeline: Acquire (Stages 1-3), Segment (Stages 4-5), Quality Control (Stage 6), BirdNET Validation (Stage 7), Split (Stage 8)" width="340">
+</p>
+
+<p align="center"><em>
+Acquire → Segment → Quality Control → BirdNET Validation → Split
+</em></p>
 
 Stages 1–8 build the dataset and are what the data descriptor documents;
 Stage 9 is a reference training script, retained for reproducibility rather
