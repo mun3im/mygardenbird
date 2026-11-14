@@ -18,9 +18,9 @@ All 36 experiments completed.
 - **Training**: AdamW, batch size 32, max 50 epochs, early stopping, ReduceLROnPlateau
 - **Initialization**: ImageNet pretrained weights
 
-> MyGardenBird is the 12-species core dataset; see
-> [`../mygardenbird16khz/`](../mygardenbird16khz/README.md) for dataset
-> construction. The 14-species MyGardenBird-Plus extension (adds Common Myna
+> MyGardenBird was, at the time of these runs, a 12-species core dataset; the
+> current release has fifteen classes and different composition (see
+> [`README.md`](README.md)). The 14-species MyGardenBird-Plus extension (adds Common Myna
 > and Zebra Dove) is benchmarked separately in
 > [`plus_16k_14species.md`](plus_16k_14species.md).
 

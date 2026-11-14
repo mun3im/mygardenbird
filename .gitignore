@@ -133,3 +133,15 @@ _plus_sweep_logs/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Dataset metadata is distributed with the Zenodo deposit, not here, so the
+# repository cannot ship a stale copy of it (these directories previously held
+# v0.9 tables long after the release moved on).
+metadata16khz/
+metadata44khz/
+project_csv/recordings.csv
+
+# The supplementary "plus" edition was abolished; its two species are ordinary
+# core classes of the current release.
+mygardenbirdplus16khz/
+mygardenbirdplus44khz/

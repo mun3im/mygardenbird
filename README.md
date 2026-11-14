@@ -3,20 +3,27 @@
 End-to-end pipeline for building and validating a Malaysian garden-bird audio
 classification dataset — from Xeno-Canto download to trained CNN classifiers.
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20306877.svg)](https://doi.org/10.5281/zenodo.20306877)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20306876.svg)](https://doi.org/10.5281/zenodo.20306876)
 
 ## The dataset at a glance
 
+The dataset itself is published on Zenodo under the concept DOI
+[10.5281/zenodo.20306876](https://doi.org/10.5281/zenodo.20306876), which always
+resolves to the current version. This repository holds the pipeline that builds
+it, not the data.
+
 | | |
 |---|---|
-| Species | **12** Malaysian garden birds (600 clips each) |
-| Clips | **7,200** manually verified 3-second segments |
-| Sample rates | 16 kHz and 44.1 kHz |
-| Split | **80:10:10**, MIP-optimised, source-separated (no leakage) |
-| Sources | 1,381 unique Xeno-Canto recordings |
+| Release | **v2.0** (2026-11-14) |
+| Species | **15** Malaysian garden birds, **438–600** clips each |
+| Clips | **8,659** manually verified 3-second segments (16 kHz); 8,287 at 44.1 kHz |
+| Sample rates | 16 kHz, and a 44.1 kHz subset — not an upsampling |
+| Splits | 80:10:10, 75:10:15, 70:15:15, plus a **site-grouped** 80:10:10 |
+| Sources | **1,732** unique Xeno-canto recordings, each verified individually |
 
-A **14-species "Plus" edition** (8,400 clips, adds Common Myna & Zebra Dove) is
-documented in [`mygardenbirdplus16khz/`](mygardenbirdplus16khz/README.md).
+Class sizes are uneven because recordings licensed CC BY-NC-ND are excluded
+throughout — segmentation produces a derivative work — and four species run out
+of usable regional material before reaching 600.
 
 ## Headline results
 
@@ -39,11 +46,10 @@ documented in [`mygardenbirdplus16khz/`](mygardenbirdplus16khz/README.md).
 - MIP splitter solves the 80:10:10 split in **1.7 s** — 564× faster than
   simulated annealing, with guaranteed-optimal class balance.
 
-Full per-seed / per-model / per-augmentation tables:
-12-species in [`benchmark_summaries/16k_12species.md`](benchmark_summaries/16k_12species.md);
-14-species in [`benchmark_summaries/plus_16k_14species.md`](benchmark_summaries/plus_16k_14species.md).
-See [`benchmark_summaries/README.md`](benchmark_summaries/README.md) for an
-accuracy-vs-compute comparison across both datasets.
+Full per-seed / per-model / per-augmentation tables are in
+[`benchmark_summaries/`](benchmark_summaries/README.md). **Those results were
+produced on the superseded 12- and 14-species releases and are not comparable
+with v2.0**; the models will be retrained on the current dataset.
 (Raw per-run training outputs stay local and are not published.)
 
 ## Pipeline
@@ -68,7 +74,7 @@ $EDITOR pipeline/config.py          # set PROJECT_ROOT and DATASET_NAME
 # 3. Train the best configuration
 python pipeline/Stage9_train_mygardenbird_multifeature.py \
     --model efficientnetb0 --feature mel --mixup 0.2 \
-    --splits_csv ./metadata16khz/splits_mip_80_10_10.csv --seed 42
+    --splits_csv /path/to/metadata16khz/splits_mip_80_10_10.csv --seed 42
 ```
 
 ## Where things live
@@ -76,11 +82,10 @@ python pipeline/Stage9_train_mygardenbird_multifeature.py \
 | Topic | Location |
 |---|---|
 | Pipeline guide, training matrix, hyperparameters | [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) |
-| Metadata schema / data dictionary | [`docs/DATA_DICTIONARY.md`](docs/DATA_DICTIONARY.md), [`project_csv/`](project_csv/README.md) |
-| Pre-generated splits & QC manifests | [`metadata16khz/`](metadata16khz/README.md), [`metadata44khz/`](metadata44khz/README.md) |
-| Stage-specific notes | [`docs/STAGE4_ANNOTATOR_DOCS.md`](docs/STAGE4_ANNOTATOR_DOCS.md), [`docs/STAGE6_QC_MANIFEST_DOCS.md`](docs/STAGE6_QC_MANIFEST_DOCS.md), [`docs/STAGE7_SPLITTER_DOCS.md`](docs/STAGE7_SPLITTER_DOCS.md), [`docs/STAGE8_TRAINER_DOCS.md`](docs/STAGE8_TRAINER_DOCS.md) |
-| CNN benchmark summaries | [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) (12-species), [`benchmark_summaries/`](benchmark_summaries/plus_16k_14species.md) (14-species) |
-| 14-species Plus edition | [`mygardenbirdplus16khz/`](mygardenbirdplus16khz/README.md) |
+| Metadata schema / data dictionary | [`docs/DATA_DICTIONARY.md`](docs/DATA_DICTIONARY.md) |
+| Pre-generated splits & QC manifests | ship with the [dataset deposit](https://doi.org/10.5281/zenodo.20306876), not this repository |
+| Stage-specific notes | [`docs/STAGE4_ANNOTATOR_DOCS.md`](docs/STAGE4_ANNOTATOR_DOCS.md), [`docs/STAGE6_QC_MANIFEST_DOCS.md`](docs/STAGE6_QC_MANIFEST_DOCS.md), [`docs/STAGE8_SPLITTER_DOCS.md`](docs/STAGE8_SPLITTER_DOCS.md), [`docs/STAGE9_TRAINER_DOCS.md`](docs/STAGE9_TRAINER_DOCS.md) |
+| CNN benchmark summaries | [`benchmark_summaries/`](benchmark_summaries/README.md) — **predate v2.0; retained for reference, to be retrained** |
 | Helper / archived scripts | [`extras/`](extras/README.md) |
 
 ## License

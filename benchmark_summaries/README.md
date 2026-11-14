@@ -1,5 +1,30 @@
 # Benchmark Summaries
 
+> ### ⚠️ These results predate dataset v2.0 and are retained for reference only
+>
+> Every benchmark below was trained on a **superseded** release: the 12-species
+> core set, and the 14-species "Plus" set that no longer exists as a separate
+> edition. The current release (**v2.0**, DOI
+> [10.5281/zenodo.20306876](https://doi.org/10.5281/zenodo.20306876)) differs
+> from both in ways that make these numbers non-comparable:
+>
+> - **15 species**, not 12 or 14. The Common Myna, Zebra Dove and
+>   Scarlet-backed Flowerpecker are now ordinary core classes.
+> - **Source recordings licensed CC BY-NC-ND were removed throughout**, which
+>   changed the composition of every class rather than only the class count.
+> - **Class sizes are no longer uniform** — they range from 438 to 600, so
+>   accuracy is no longer measured on a balanced problem.
+> - **The splits are genuinely source- and site-disjoint.** The site-grouped
+>   splits used here grouped by source recording only, through a defect since
+>   fixed, so earlier numbers carry site-level leakage that the current ones
+>   do not.
+>
+> **These models will be retrained on dataset v2.0**, and this directory will
+> be replaced when that is done. Until then, treat the figures below as a
+> record of what was run, not as current performance of the dataset — and in
+> particular do not cite them against v2.0. Expect the retrained numbers to be
+> *lower* on the leakage-free splits; that is a correction, not a regression.
+
 Pretrained-CNN benchmarks for the MyGardenBird 16 kHz datasets. Each summary
 covers 3 seeds (42, 100, 786) × 3 augmentation strategies (No Augmentation,
 SpecAugment, Mixup α=0.2) on ImageNet-pretrained backbones fine-tuned on mel
@@ -46,9 +71,8 @@ python3 accuracy_vs_mflops_figure.py
 
 The MFLOPs/accuracy figures in [`accuracy_vs_mflops_figure.py`](accuracy_vs_mflops_figure.py)
 are transcribed from the tables above, which in turn come from the per-run
-`results.json` files in
-[`../results_16k_12sp_linux/`](../results_16k_12sp_linux/) and
-[`../resultsplus_16k_linux/`](../resultsplus_16k_linux/).
+`results.json` files of the sweeps described below. Those run directories are
+not tracked in this repository.
 
 ## Regenerating the Underlying Data
 
@@ -73,7 +97,9 @@ python3 pipeline/Stage9_train_mygardenbird_multifeature.py \
 `--model` accepts `mobilenetv3s`, `resnet50`, `vgg16`, `efficientnetb0`; omit
 `--mixup` for the no-augmentation runs or pass `--specaug` for SpecAugment.
 The full 36-run 12-species sweep (4 models × 3 augmentations × 3 seeds) is
-driven by [`full_rerun_12sp.sh`](../full_rerun_12sp.sh); the 27-run 14-species
-Plus sweep (3 models × 3 augmentations × 3 seeds) by
-[`run_plus_sweep.sh`](../run_plus_sweep.sh) — each is one invocation of
-Stage9 per (model × augmentation × seed) cell.
+driven by a shell loop over those cells, as is the 27-run 14-species Plus
+sweep (3 models × 3 augmentations × 3 seeds) — each is one invocation of
+Stage9 per (model × augmentation × seed) combination.
+
+Note that the splits file referenced above ships with the dataset deposit
+rather than with this repository; see the deposit's `metadata16khz/`.
