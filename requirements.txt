@@ -1,35 +1,45 @@
-# MyGardenBird pipeline dependencies
-# Stages 1–9: https://doi.org/10.5281/zenodo.20306877
+# MyGardenBird pipeline dependencies.
 #
-# Install:
-#   pip install -r requirements.txt
-#
-# TensorFlow note: on macOS use tensorflow-macos + tensorflow-metal instead of tensorflow.
-# BirdNET note: Stage 7 requires birdnet_analyzer (Cornell BirdNET-Analyzer ≥ 2.2).
-#   pip install birdnet_analyzer
-#   Then download model weights: python -m birdnet_analyzer.download_models
+# Not every stage needs everything here. The groups below say which stages use
+# what, so you can install a subset: building the dataset needs neither
+# TensorFlow nor the GUI toolkit, and training needs neither the GUI nor the
+# Xeno-canto client.
 
-# ── data & I/O ───────────────────────────────────────────────────────────────
+# ---- core: used throughout -------------------------------------------------
 numpy>=1.26
-scipy>=1.11
 pandas>=2.0
-soundfile>=0.12
-sounddevice>=0.4          # Stage 4: audio playback in annotation GUI
-librosa>=0.10
-requests>=2.31
 tqdm>=4.65
 
-# ── machine learning ─────────────────────────────────────────────────────────
-tensorflow>=2.15          # Stages 9 (training) and export_mobilenetv3s_tflite.py
-scikit-learn>=1.3
-PuLP>=2.8                 # Stage 8: MIP-based splitting
+# ---- audio I/O and analysis (Stages 4-7, 9) --------------------------------
+librosa>=0.10
+soundfile>=0.12            # Stage 5: FLAC/WAV read and write
+scipy>=1.11
 
-# ── visualisation ────────────────────────────────────────────────────────────
+# ---- Stage 1-2: Xeno-canto retrieval ---------------------------------------
+requests>=2.31
+
+# ---- Stage 4: annotation GUIs ----------------------------------------------
+# Two annotators share stage4_core.py and produce identical label files.
+# Stage4_annotate_qt.py (the one in routine use) needs all three packages
+# below; Stage4_annotate_segments.py, the original matplotlib tool, needs only
+# matplotlib and sounddevice.
+PySide6>=6.5               # Qt bindings
+pyqtgraph>=0.13            # fast spectrogram/waveform rendering
+sounddevice>=0.4           # audio playback; needs PortAudio on the system
+
+# ---- Stage 8: MIP splitting ------------------------------------------------
+PuLP>=2.8                  # bundles the CBC solver
+
+# ---- Stage 7: BirdNET validation -------------------------------------------
+# The package is MIT licensed; the model weights it loads are released under a
+# non-commercial licence (see NOTICE).
+birdnet_analyzer>=2.2
+
+# ---- Stage 9: training (optional unless you are training) ------------------
+tensorflow>=2.15
+scikit-learn>=1.3
+psutil>=5.9                # resource monitoring during training
+
+# ---- plotting --------------------------------------------------------------
 matplotlib>=3.8
 seaborn>=0.13
-
-# ── system / utils ───────────────────────────────────────────────────────────
-psutil>=5.9               # Stage 9: resource monitoring
-
-# ── BirdNET (Stage 7 only) ───────────────────────────────────────────────────
-birdnet_analyzer>=2.2

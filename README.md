@@ -81,8 +81,13 @@ audio, the metadata tables and the train/val/test splits ready to use.
 **To rebuild the dataset from Xeno-canto, or to train on it:**
 
 ```bash
-# 1. Install (pulp is required for MIP splitting)
+# 1. Install. requirements.txt is grouped by stage, so you can trim it:
+#    building the dataset needs no TensorFlow, training needs no GUI.
 pip install -r requirements.txt
+
+#    The annotation GUIs play audio through PortAudio, which pip does not
+#    bring in:  macOS  brew install portaudio
+#               Debian apt install libportaudio2
 
 # 2. Point config at your storage, then place target_species.csv
 #    in <PROJECT_ROOT>/<DATASET_NAME>/project_csv/
