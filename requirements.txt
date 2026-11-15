@@ -31,9 +31,15 @@ sounddevice>=0.4           # audio playback; needs PortAudio on the system
 PuLP>=2.8                  # bundles the CBC solver
 
 # ---- Stage 7: BirdNET validation -------------------------------------------
-# The package is MIT licensed; the model weights it loads are released under a
+# Note these are two different version numbers. birdnet_analyzer is the Python
+# PACKAGE; the MODEL it ships is BirdNET GLOBAL 6K V2.4, which Stage 7 pins by
+# filename, so the model is fixed whichever of these package versions you have.
+# The published results were produced with package 2.4.0 and model V2.4.
+# The upper bound is deliberate: a future major release could ship a different
+# model or move the checkpoint paths, which would silently change the results.
+# The package is MIT licensed; the model weights are released under a
 # non-commercial licence (see NOTICE).
-birdnet_analyzer>=2.2
+birdnet_analyzer>=2.2,<3
 
 # ---- Stage 9: training (optional unless you are training) ------------------
 tensorflow>=2.15
