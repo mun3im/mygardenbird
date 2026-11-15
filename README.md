@@ -132,15 +132,24 @@ recordings the clips derive from; their names and source URLs are in
 
 ## Licence
 
-**Code in this repository is public domain** under the [Unlicense](LICENSE).
+**The code is [MIT](LICENSE).** Use it freely, including commercially; keep the
+copyright notice.
 
 **The dataset is CC BY-NC-SA 4.0**, reflecting the most restrictive upstream
-terms among the Xeno-canto source recordings it derives from. Attribution is due
-to the original recordists; `recordings.csv` in the deposit carries the
-`recordist` and `xc_url` fields for every source. Recordings licensed
-CC BY-NC-ND are excluded throughout, since segmenting a recording produces a
-derivative work.
+terms among the Xeno-canto recordings it derives from. Attribution is due to the
+individual recordists as well as to us — `recordings.csv` carries `recordist`
+and `xc_url` for every source. Recordings licensed CC BY-NC-ND are excluded,
+since segmenting one produces a derivative work the NoDerivatives term does not
+permit to be distributed.
 
-The two licences are separate: the code is not encumbered by the dataset
-licence, and redistributing the clips or metadata requires CC BY-NC-SA 4.0
-regardless of where the code came from.
+Two things the MIT licence does **not** override, spelled out in [`LICENSE`](LICENSE):
+
+- Clips you generate with this pipeline inherit the terms of the recordings
+  they came from. The ND exclusion is enforced by default and can be disabled
+  (`--no-skip-nd` on Stages 2 and 2a) — if you disable it, the resulting clips
+  are yours to use privately but not to redistribute.
+- **BirdNET's model weights are non-commercial.** The BirdNET-Analyzer code is
+  MIT, but the weights Stage 7 loads are released by the Cornell Lab of
+  Ornithology under a non-commercial licence, so commercial use of Stage 7
+  needs their permission. This repository neither embeds nor redistributes
+  them.
