@@ -114,7 +114,8 @@ place cannot be split across partitions.
 | Topic | Location |
 |---|---|
 | Pipeline guide, training matrix, hyperparameters | [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) |
-| Metadata schema / data dictionary | [`docs/DATA_DICTIONARY.md`](docs/DATA_DICTIONARY.md) |
+| Metadata schema, ERD, every CSV | [`docs/DATA_DICTIONARY.md`](docs/DATA_DICTIONARY.md) |
+| Fetching XC metadata, the ND flag, extending the release | [`docs/EXTENDING_THE_DATASET.md`](docs/EXTENDING_THE_DATASET.md) |
 | Pre-generated splits & QC manifests | ship with the [dataset deposit](https://doi.org/10.5281/zenodo.20306876), not this repository |
 | Stage-specific notes | [`docs/STAGE4_ANNOTATOR_DOCS.md`](docs/STAGE4_ANNOTATOR_DOCS.md), [`docs/STAGE6_QC_MANIFEST_DOCS.md`](docs/STAGE6_QC_MANIFEST_DOCS.md), [`docs/STAGE8_SPLITTER_DOCS.md`](docs/STAGE8_SPLITTER_DOCS.md), [`docs/STAGE9_TRAINER_DOCS.md`](docs/STAGE9_TRAINER_DOCS.md) |
 | CNN benchmark summaries | [`benchmark_summaries/`](benchmark_summaries/README.md) — **predate v2.0; retained for reference, to be retrained** |
