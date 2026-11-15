@@ -1,0 +1,36 @@
+NOTICE — terms that the MIT licence does not override
+======================================================
+
+The MIT licence in LICENSE covers the MyGardenBird pipeline SOURCE CODE only.
+Three other sets of terms apply to material the pipeline produces or depends
+on, and none of them is altered by that licence.
+
+THE DATASET IS NOT MIT LICENSED.
+
+  The MyGardenBird dataset -- the audio clips and the metadata tables -- is
+  released under CC BY-NC-SA 4.0, reflecting the most restrictive upstream
+  terms among the Xeno-canto recordings it derives from. See
+  https://doi.org/10.5281/zenodo.20306876
+
+  Attribution is due to the individual Xeno-canto recordists, not only to the
+  dataset authors; recordings.csv carries the recordist and xc_url fields for
+  every source recording.
+
+SOURCE RECORDINGS CARRY THEIR OWN LICENCES.
+
+  Clips are derived works of Xeno-canto recordings, each under its own
+  Creative Commons licence. Recordings licensed CC BY-NC-ND are excluded from
+  the dataset, because segmenting a recording produces a derivative work that
+  the NoDerivatives term does not permit to be distributed. If you use this
+  pipeline to build your own corpus, that exclusion is yours to enforce: see
+  the --no-skip-nd flag on Stages 2 and 2a, which disables it.
+
+BIRDNET MODEL WEIGHTS ARE NON-COMMERCIAL.
+
+  Stage 7 evaluates clips with BirdNET. The BirdNET-Analyzer source code is
+  MIT licensed, but the model weights it loads -- from the installed
+  birdnet_analyzer package, not from this repository -- are released by the
+  Cornell Lab of Ornithology under a non-commercial Creative Commons licence.
+  Running Stage 7 in a commercial setting therefore needs permission from
+  Cornell, regardless of this MIT licence. Nothing here embeds or
+  redistributes those weights.

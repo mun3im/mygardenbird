@@ -142,7 +142,7 @@ and `xc_url` for every source. Recordings licensed CC BY-NC-ND are excluded,
 since segmenting one produces a derivative work the NoDerivatives term does not
 permit to be distributed.
 
-Two things the MIT licence does **not** override, spelled out in [`LICENSE`](LICENSE):
+Two things the MIT licence does **not** override, spelled out in [`NOTICE`](NOTICE):
 
 - Clips you generate with this pipeline inherit the terms of the recordings
   they came from. The ND exclusion is enforced by default and can be disabled
