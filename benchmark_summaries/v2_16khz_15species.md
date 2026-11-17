@@ -8,8 +8,7 @@ Benchmarks on the current dataset release
 further non-ND regional recordings).
 
 Single seed (42) per model so far — mel spectrogram features, Mixup
-α=0.2, 866 test clips. Not yet the full 3-seed × 3-augmentation sweep run
-for the superseded 12/14-species editions (see `README.md`).
+α=0.2, 866 test clips. Full 3-seed × 3-augmentation sweep in progress.
 
 ## Results
 
@@ -22,8 +21,7 @@ for the superseded 12/14-species editions (see `README.md`).
 
 ![Accuracy vs params](accuracy_vs_params_v2.pdf)
 
-- **EfficientNet-B0** remains the best accuracy, consistent with the
-  12/14-species editions — now reproduced on the leakage-free v2.0 split.
+- **EfficientNet-B0** is the strongest of the four architectures.
 - **MynaNet v1**, a from-scratch depthwise-separable CNN designed for
   Cortex-M7 deployment, needs only 328.8K params (13× fewer than
   MobileNetV3-Small, 73× fewer than ResNet-50) yet beats both of them

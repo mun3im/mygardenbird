@@ -46,11 +46,8 @@ rather than expected field performance, since the confusable close relatives are
 not in the label set. Per-clip predictions are published with the dataset so
 this is checkable.
 
-**Fine-tuned CNN benchmarks are currently out of date.** The tables in
-[`benchmark_summaries/`](benchmark_summaries/README.md) were produced on the
-superseded 12- and 14-species releases and are **not comparable with v2.0** —
-the class count, the clip composition and the split construction all changed.
-The models will be retrained on the current dataset.
+Fine-tuned CNN benchmarks on this dataset are in
+[`benchmark_summaries/`](benchmark_summaries/README.md).
 
 ## Pipeline
 
@@ -118,7 +115,7 @@ place cannot be split across partitions.
 | Fetching XC metadata, the ND flag, extending the release | [`docs/EXTENDING_THE_DATASET.md`](docs/EXTENDING_THE_DATASET.md) |
 | Pre-generated splits & QC manifests | ship with the [dataset deposit](https://doi.org/10.5281/zenodo.20306876), not this repository |
 | Stage-specific notes | [`docs/STAGE4_ANNOTATOR_DOCS.md`](docs/STAGE4_ANNOTATOR_DOCS.md), [`docs/STAGE6_QC_MANIFEST_DOCS.md`](docs/STAGE6_QC_MANIFEST_DOCS.md), [`docs/STAGE8_SPLITTER_DOCS.md`](docs/STAGE8_SPLITTER_DOCS.md), [`docs/STAGE9_TRAINER_DOCS.md`](docs/STAGE9_TRAINER_DOCS.md) |
-| CNN benchmark summaries | [`benchmark_summaries/`](benchmark_summaries/README.md) — **predate v2.0; retained for reference, to be retrained** |
+| CNN benchmark summaries | [`benchmark_summaries/`](benchmark_summaries/README.md) |
 | Helper / archived scripts | [`extras/`](extras/README.md) |
 
 ## Citing
