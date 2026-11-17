@@ -1,12 +1,13 @@
 # Benchmark Summaries
 
-> ### ⚠️ These results predate dataset v2.0 and are retained for reference only
+> ### ⚠️ The 12-species and 14-species tables below predate dataset v2.0
 >
-> Every benchmark below was trained on a **superseded** release: the 12-species
-> core set, and the 14-species "Plus" set that no longer exists as a separate
-> edition. The current release (**v2.0**, DOI
-> [10.5281/zenodo.20306876](https://doi.org/10.5281/zenodo.20306876)) differs
-> from both in ways that make these numbers non-comparable:
+> `16k_12species.md` and `plus_16k_14species.md` were trained on a
+> **superseded** release: the 12-species core set, and the 14-species "Plus"
+> set that no longer exists as a separate edition. The current release
+> (**v2.0**, DOI
+> [10.5281/zenodo.24217498](https://doi.org/10.5281/zenodo.24217498)) differs
+> from both in ways that make those older numbers non-comparable:
 >
 > - **15 species**, not 12 or 14. The Common Myna, Zebra Dove and
 >   Scarlet-backed Flowerpecker are now ordinary core classes.
@@ -19,24 +20,26 @@
 >   fixed, so earlier numbers carry site-level leakage that the current ones
 >   do not.
 >
-> **These models will be retrained on dataset v2.0**, and this directory will
-> be replaced when that is done. Until then, treat the figures below as a
-> record of what was run, not as current performance of the dataset — and in
-> particular do not cite them against v2.0. Expect the retrained numbers to be
-> *lower* on the leakage-free splits; that is a correction, not a regression.
+> **[`v2_16khz_15species.md`](v2_16khz_15species.md) has the first v2.0
+> results** (single seed per model so far, not yet the full 3-seed ×
+> 3-augmentation sweep below). Expect those numbers to sit *lower* than the
+> 12/14-species tables on the leakage-free splits; that is a correction, not
+> a regression.
 
 Pretrained-CNN benchmarks for the MyGardenBird 16 kHz datasets. Each summary
 covers 3 seeds (42, 100, 786) × 3 augmentation strategies (No Augmentation,
 SpecAugment, Mixup α=0.2) on ImageNet-pretrained backbones fine-tuned on mel
-spectrograms.
+spectrograms, except `v2_16khz_15species.md` (single seed so far).
 
 | Summary | Dataset | Species | Models | Experiments |
 |---|---|---|---|---|
-| [`16k_12species.md`](16k_12species.md) | MyGardenBird (core) | 12 | EfficientNet-B0, ResNet-50, VGG16, MobileNetV3-Small | 36/36 complete |
-| [`plus_16k_14species.md`](plus_16k_14species.md) | MyGardenBird-Plus | 14 | EfficientNet-B0, ResNet-50, MobileNetV3-Small | 27/27 complete |
+| [`v2_16khz_15species.md`](v2_16khz_15species.md) | MyGardenBird v2.0 | 15 | EfficientNet-B0, ResNet-50, MobileNetV3-Small, MynaNet v1 | 4/4 (seed 42 only) |
+| [`16k_12species.md`](16k_12species.md) | MyGardenBird (core, superseded) | 12 | EfficientNet-B0, ResNet-50, VGG16, MobileNetV3-Small | 36/36 complete |
+| [`plus_16k_14species.md`](plus_16k_14species.md) | MyGardenBird-Plus (superseded) | 14 | EfficientNet-B0, ResNet-50, MobileNetV3-Small | 27/27 complete |
 
 > VGG16 was only benchmarked on the 12-species core set; the 14-species Plus
-> sweep covers the other three architectures.
+> sweep covers the other three architectures. MynaNet v1 (a from-scratch
+> deployment-focused CNN, not an ImageNet backbone) was only run on v2.0.
 
 ## Accuracy vs. Compute
 
@@ -62,11 +65,32 @@ datasets, log-scaled on compute:
 | VGG16 | 15,300 | 14.8M | 94.03% | — (not run) | — |
 | MobileNetV3-Small | 56 | 1.2M | 92.41% | 91.35% | −1.06 pp |
 
-## Regenerating the Plot
+## v2.0 Accuracy vs. Model Size
+
+Measured params (not literature/architecture tables) vs. test accuracy,
+single seed (42), Mixup α=0.2, on the v2.0 15-species split:
+
+![Accuracy vs params (v2.0)](accuracy_vs_params_v2.pdf)
+
+| Model | Params | v2.0 Test Acc |
+|---|---:|---:|
+| EfficientNet-B0 | 4.38M | **92.15%** |
+| MynaNet v1 (INT8) | 0.33M | 90.76% |
+| ResNet-50 | 24.12M | 89.38% |
+| MobileNetV3-Small | 1.24M | 88.80% |
+
+MynaNet v1 — a from-scratch depthwise-separable CNN sized for Cortex-M7
+deployment — gets within 1.4 pp of EfficientNet-B0 at 13× fewer params than
+MobileNetV3-Small and 73× fewer than ResNet-50, the best accuracy-per-param
+trade-off of the four. Full details and per-class breakdowns in
+[`v2_16khz_15species.md`](v2_16khz_15species.md).
+
+## Regenerating the Plots
 
 ```bash
 cd benchmark_summaries
-python3 accuracy_vs_mflops_figure.py
+python3 accuracy_vs_mflops_figure.py       # 12-sp/14-sp MFLOPs comparison (superseded datasets)
+python3 accuracy_vs_params_v2_figure.py    # v2.0 params comparison
 ```
 
 The MFLOPs/accuracy figures in [`accuracy_vs_mflops_figure.py`](accuracy_vs_mflops_figure.py)

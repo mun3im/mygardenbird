@@ -49,7 +49,7 @@ from pathlib import Path
 # =============================================================================
 
 PROJECT_ROOT = "/Volumes/Evo"   # Root mount point / storage root
-DATASET_NAME = "MYGARDENBIRD"        # Top-level folder inside PROJECT_ROOT
+DATASET_NAME = "MYGARDENBIRD_v2"     # Top-level folder inside PROJECT_ROOT
 
 # =============================================================================
 # DERIVED PATHS — do not edit below this line
