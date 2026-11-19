@@ -33,6 +33,14 @@ Single seed (42) per model so far — mel spectrogram features, Mixup
   `support` in each model's classification report) — consistent with the
   BirdNET zero-shot pass flagging many of the same species for review
   (see `../birdnet_results/v2_16khz_full/flagged_for_manual_review.csv`).
+- **Scarlet-backed Flowerpecker is confused for Ornate Sunbird far more
+  than the reverse** (BirdNET: 128/600 Flowerpecker clips called Sunbird,
+  vs. only 5/600 the other way). Manually reviewed the largest-contributing
+  source recordings (Geoff Carey, Telinga parabolic mic, clean audio,
+  no XC corrections since 2019) and found no annotation or recording-quality
+  issue — this is a genuine, direction-asymmetric acoustic confusion between
+  the two species, not a dataset artifact. See
+  `../birdnet_results/v2_16khz_full/sunbird_flowerpecker_confusion_review.md`.
 
 ## Per-model classification reports
 

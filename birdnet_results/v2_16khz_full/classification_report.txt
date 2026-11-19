@@ -1,0 +1,48 @@
+BirdNET v2.4 Zero-Shot Evaluation — MyGardenBird
+============================================================
+Splits CSV : all clips (no split)
+Test clips : 8659
+Accuracy   : 94.83%
+Macro AUC  : 0.9876
+============================================================
+
+                             precision    recall  f1-score   support
+
+                 Asian Koel     0.9797    0.9650    0.9723       600
+        Collared Kingfisher     0.9820    0.9767    0.9793       558
+                Common Iora     0.9429    0.9633    0.9530       600
+                Common Myna     0.9098    0.9417    0.9255       600
+          Common Tailorbird     0.9399    0.9383    0.9391       600
+         Coppersmith Barbet     0.9916    0.9833    0.9874       600
+      Large-tailed Nightjar     0.9788    1.0000    0.9893       600
+             Ornate Sunbird     0.7644    0.9733    0.8563       600
+               Pied Fantail     0.9926    0.9178    0.9537       438
+Scarlet-backed Flowerpecker     0.9885    0.7183    0.8320       600
+               Spotted Dove     0.9735    0.9783    0.9759       600
+    White-breasted Waterhen     0.9856    0.9100    0.9463       600
+  White-throated Kingfisher     0.9818    0.9883    0.9850       600
+       Yellow-vented Bulbul     0.9282    0.9815    0.9541       540
+                 Zebra Dove     0.9682    0.9904    0.9792       523
+
+                   accuracy                         0.9483      8659
+                  macro avg     0.9538    0.9484    0.9486      8659
+               weighted avg     0.9530    0.9483    0.9480      8659
+
+============================================================
+Per-class AUC (one-vs-rest):
+  Asian Koel                   0.9802
+  Collared Kingfisher          0.9992
+  Common Iora                  0.9747
+  Common Myna                  0.9706
+  Common Tailorbird            0.9830
+  Coppersmith Barbet           0.9975
+  Large-tailed Nightjar        1.0000
+  Ornate Sunbird               0.9919
+  Pied Fantail                 0.9873
+  Scarlet-backed Flowerpecker  0.9778
+  Spotted Dove                 0.9906
+  White-breasted Waterhen      0.9671
+  White-throated Kingfisher    0.9986
+  Yellow-vented Bulbul         0.9984
+  Zebra Dove                   0.9978
+  Macro avg                    0.9876
