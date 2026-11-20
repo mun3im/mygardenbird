@@ -117,6 +117,14 @@ def parse_args():
         "--lon", type=float, default=101.687,
         help="Longitude for metadata model (default: 101.687 Kuala Lumpur)",
     )
+    parser.add_argument(
+        "--export_audit_queue", action="store_true",
+        help="Also write audit_queue.csv: every misclassified clip, with its "
+             "Xeno-Canto source_id and xc_url parsed from the filename, sorted "
+             "by (ground_truth, predicted, -max_conf) for manual re-review "
+             "(chasing individual files back to Stage 4/5), rather than "
+             "trusting the BirdNET label.",
+    )
     return parser.parse_args()
 
 
@@ -254,6 +262,23 @@ def main():
 
     df = pd.DataFrame(rows)
     df.to_csv(out / "per_clip_results.csv", index=False)
+
+    if args.export_audit_queue:
+        misclassified = df[df["correct"] == 0].copy()
+        # Filenames are xc<source_id>_<onset_ms>.wav (see CLAUDE.md invariant).
+        stem = misclassified["filepath"].apply(lambda p: Path(p).stem)
+        misclassified["source_id"] = stem.str.extract(r"xc(\d+)_")[0]
+        misclassified["xc_url"] = "https://xeno-canto.org/" + misclassified["source_id"]
+        misclassified = misclassified.sort_values(
+            ["ground_truth", "predicted", "max_conf"],
+            ascending=[True, True, False],
+        )
+        audit_cols = ["ground_truth", "predicted", "max_conf", "source_id",
+                      "xc_url", "filepath", "unrestricted_top1",
+                      "unrestricted_top1_conf"]
+        misclassified[audit_cols].to_csv(out / "audit_queue.csv", index=False)
+        print(f"Audit queue: {len(misclassified)} misclassified clips -> "
+              f"{out / 'audit_queue.csv'}")
 
     # ── Metrics ───────────────────────────────────────────────────────────────
     y_true = df["ground_truth"].tolist()
