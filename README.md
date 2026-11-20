@@ -59,12 +59,16 @@ Fine-tuned CNN benchmarks on this dataset are in
 Acquire → Segment → Quality Control → BirdNET Validation → Split
 </em></p>
 
-Stages 1–8 build the dataset and are what the data descriptor documents;
-Stage 9 is a reference training script, retained for reproducibility rather
-than being part of dataset construction. Lettered variants (`Stage8a`, `8b`,
-`8c`) are alternative splitter implementations kept for comparison — the
-released splits come from `Stage8_splitter_mip.py`. Every script derives its
-paths from `pipeline/config.py`.
+**Naming convention.** An unsuffixed `StageN_*.py` is required to rebuild the
+release: Stages 1–8 build the dataset, they are what the data descriptor
+documents, and they are the scripts archived on Zenodo (with `config.py` and the
+modules they import). A lettered script (`Stage2a`, `Stage5a`/`5b`, `Stage7a`,
+`Stage7b`, `Stage8a`–`8c`) is optional or auxiliary — a convenience, an audit,
+or an alternative implementation kept for comparison — and lives on GitHub
+only, with its own docstring. `Stage9` is a reference training script, likewise
+GitHub only. The released splits come from `Stage8_splitter_mip.py`, and
+`Stage6` also adds the taxonomy columns to `recordings.csv`. Every script
+derives its paths from `pipeline/config.py`.
 
 **Full stage-by-stage guide, hyperparameters, and reproduction commands:
 [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md).**

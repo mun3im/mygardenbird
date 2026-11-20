@@ -27,6 +27,7 @@ silence is detected and reported but not used as a rejection criterion.
 
 import argparse
 import csv
+import json
 import os
 import sys
 from collections import defaultdict
@@ -335,6 +336,68 @@ def _parse_stem(wav_name):
     return xc_id, onset_ms, file_id
 
 
+TAXONOMY_COLS = ["xc_url", "subspecies", "ebird_code",
+                 "taxonomy_authority", "taxonomy_version", "taxonomy_access_date"]
+TAXONOMY_AUTHORITY = "eBird/Clements Checklist"
+TAXONOMY_VERSION = "v2024"
+TAXONOMY_ACCESS_DATE = "2026-02-23"
+
+
+def add_taxonomy_columns(recordings_path):
+    """
+    Append the six taxonomy/provenance columns to a freshly written recordings.csv.
+
+    generate_recordings_csv() emits ten columns only; the deposited file has
+    sixteen. `xc_url` and `subspecies` come from the per-ID Xeno-canto cache
+    (<dataset root>/xc_metadata_*/by_id/<id>.json, newest wins); `ebird_code`
+    from project_csv/target_species.csv. Without a cache, xc_url falls back to
+    the canonical https://xeno-canto.org/<id> form and subspecies is left blank
+    -- which would understate the subspecies field, so a warning is printed.
+    Idempotent: does nothing if the columns are already present.
+    """
+    recordings_path = Path(recordings_path)
+    root = recordings_path.parent.parent
+    caches = sorted(root.glob("xc_metadata_*/by_id"))
+    cache = caches[-1] if caches else None
+    codes = {}
+    targets = recordings_path.parent / "target_species.csv"
+    if targets.exists():
+        with targets.open(newline="") as f:
+            for row in csv.reader(f):
+                if len(row) >= 3 and row[0].strip().lower() != "common_name":
+                    codes[row[0].strip()] = row[2].strip()
+    with recordings_path.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows or any(c in rows[0] for c in TAXONOMY_COLS):
+        return
+    if cache is None:
+        print("  Warning: no xc_metadata_*/by_id cache under "
+              f"{root} -- `subspecies` will be blank for every source.")
+    for r in rows:
+        sid = r["source_id"].strip()
+        ssp = url = ""
+        cj = cache / f"{sid}.json" if cache else None
+        if cj is not None and cj.exists():
+            recs = json.loads(cj.read_text()).get("recordings", [])
+            if recs:
+                ssp = (recs[0].get("ssp") or "").strip()
+                url = (recs[0].get("url") or "").strip()
+                if url and not url.startswith("http"):
+                    url = "https://" + url.lstrip("/")
+        r["xc_url"] = url or f"https://xeno-canto.org/{sid}"
+        r["subspecies"] = ssp
+        r["ebird_code"] = codes.get(r.get("species_common", "").strip(), "")
+        r["taxonomy_authority"] = TAXONOMY_AUTHORITY
+        r["taxonomy_version"] = TAXONOMY_VERSION
+        r["taxonomy_access_date"] = TAXONOMY_ACCESS_DATE
+    with recordings_path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    print(f"  Added taxonomy columns ({len(rows[0])} total) from "
+          f"{cache if cache else 'canonical URLs only'}")
+
+
 def generate_recordings_csv(results, output_path, xc_metadata):
     """
     Write recordings.csv — one row per unique source recording (PK: source_id).
@@ -572,6 +635,7 @@ Examples:
             print()
             print(f"Generating top-level recordings.csv at {recordings_path}...")
             generate_recordings_csv(results, recordings_path, xc_metadata)
+            add_taxonomy_columns(recordings_path)
         else:
             print()
             print(f"Using existing recordings.csv at {recordings_path}")
