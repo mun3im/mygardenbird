@@ -76,6 +76,9 @@ AXIS_LEFT_WIDTH = 62
 # read quantitatively, so it gets a thumb's height and no tick values.
 STRIP_HEIGHT_PX = 54
 
+# Absolute sample value treated as clipped when colouring the waveform strip.
+CLIP_LEVEL = 0.999
+
 # Per-class clip goal shown beside the running total. Annotation stops being
 # useful for a species once it is met, so the queue reports the shortfall
 # rather than leaving the total to be compared by eye. Unrelated to
@@ -482,7 +485,6 @@ class Annotator(QtWidgets.QMainWindow):
         # does nothing rather than panning time out from under the plot the
         # pointer is not on.
         self.strip_plot = pg.PlotWidget()
-        self.strip_plot.setLabel("left", "Wave")
         # Both axes locked. The wheel is handled on the ViewBox, and with
         # mouse input disabled there pyqtgraph's own zoom-on-wheel is
         # suppressed too, so the strip ignores the wheel entirely.
@@ -494,6 +496,9 @@ class Annotator(QtWidgets.QMainWindow):
         self.strip_plot.setFixedHeight(STRIP_HEIGHT_PX)
         self.strip_curve = self.strip_plot.plot(
             pen=pg.mkPen((70, 70, 70), width=1))
+        # Overdrawn in red wherever the signal reaches full scale.
+        self.strip_clip_curve = self.strip_plot.plot(
+            pen=pg.mkPen((220, 0, 0), width=1), connect="finite")
         self.strip_cursor = pg.InfiniteLine(angle=90, pen=pg.mkPen("r", width=2))
         self.strip_cursor.setVisible(False)
         self.strip_plot.addItem(self.strip_cursor)
@@ -889,6 +894,14 @@ class Annotator(QtWidgets.QMainWindow):
             amp = y
 
         self.strip_curve.setData(t, amp)
+
+        # Full-scale samples count as clipped. In the envelope branch amp holds
+        # (min, max) pairs, so a column is clipped if either end reaches it.
+        hit = np.abs(amp) >= CLIP_LEVEL
+        if len(y) > target_cols * 2:
+            hit = np.repeat(hit[0::2] | hit[1::2], 2)
+        clip_amp = np.where(hit, amp, np.nan)
+        self.strip_clip_curve.setData(t, clip_amp)
 
         # Symmetric about zero so asymmetry and DC offset stay visible; a
         # high percentile rather than the peak, because these recordings have
